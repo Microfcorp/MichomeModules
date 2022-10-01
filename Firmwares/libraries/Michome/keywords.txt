@@ -1,0 +1,92 @@
+#######################################
+# Syntax Coloring Map For Michome
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Michome	KEYWORD1
+Michom	KEYWORD1
+Logger	KEYWORD1
+RTOS	KEYWORD1
+FadeData	KEYWORD1
+RKeyboard	KEYWORD1
+LightModules	KEYWORD1
+Telnet	KEYWORD1
+TimerLightModule	KEYWORD1
+TimerLightModuleQ	KEYWORD1
+MichomeUDP	KEYWORD1
+MichomUDP	KEYWORD1
+WS28	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+SendDataGET KEYWORD2
+SendDataPOST	KEYWORD2
+SendData	KEYWORD2
+init    KEYWORD2
+running KEYWORD2
+GetServer	KEYWORD2
+GetTelnet	KEYWORD2
+GetLogger	KEYWORD2
+ParseJson	KEYWORD2
+Log	KEYWORD2
+ChangeTime	KEYWORD2
+IsTick	KEYWORD2
+Split	KEYWORD2
+GetSetting	KEYWORD2
+GetSettingRead	KEYWORD2
+SetFormatSettings	KEYWORD2
+GetSettingToInt	KEYWORD2
+StrobeBuildLed	KEYWORD2
+CreateFadeData	KEYWORD2
+StartFade	KEYWORD2
+StopAllFade	KEYWORD2
+SetLightAll	KEYWORD2
+SetLight	KEYWORD2
+SetLightID	KEYWORD2
+Strobo	KEYWORD2
+StroboPro	KEYWORD2
+StroboAll	KEYWORD2
+StroboAllPro	KEYWORD2
+AddBuferState	KEYWORD2
+RunBuffer	KEYWORD2
+AddPin	KEYWORD2
+GetMichome	KEYWORD2
+CountPins	KEYWORD2
+lightModules	KEYWORD2
+timerLightModules	KEYWORD2
+EAlarm	KEYWORD2
+ENightLight	KEYWORD2
+EOverCold	KEYWORD2
+EOverHot	KEYWORD2
+
+#######################################
+# Instances (KEYWORD2)
+#######################################
+
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+IsSettingRead	LITERAL1
+TimeoutConnection	LITERAL1
+DefaultSettingInt	LITERAL1
+TelnetEnable	LITERAL1
+LightModuleTimeoutConnection	LITERAL1
+IsBlinkOTA	LITERAL1
+StudioLight	LITERAL1
+HDC1080md	LITERAL1
+WS28Module	LITERAL1
+MeteoRequest	LITERAL1
+Termometr	LITERAL1
+Informetr	LITERAL1
+Msinfoo	LITERAL1
+Relay	LITERAL1
+PWM	LITERAL1
+SaveState	LITERAL1
+MinimumBrightnes	LITERAL1
+MaximumBrightnes	LITERAL1
