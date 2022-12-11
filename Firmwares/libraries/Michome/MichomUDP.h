@@ -13,7 +13,7 @@
 #include <FSFiles.h>
 #include <ModuleTypes.h>
 
-typedef enum ActionsType {LightData, SendURL, SendGateway, SendsUDP, TimerData};
+typedef enum ActionsType {LightData, SendURL, SendGateway, SendsUDP, TimerData, LightScripts};
 
 typedef struct UDPTriggers
 {
@@ -21,6 +21,7 @@ typedef struct UDPTriggers
     ActionsType ActionType;
     String Data;
     bool Enable;
+	bool EventFromMe; //реагирует ли на себя самого
 };
 
 typedef std::function<void(IPAddress from, String cmd)> UDPTHandlerFunction;
@@ -95,6 +96,7 @@ class MichomeUDP
                 tmp += (String)"<option "+(t == 2 ? "selected":"")+" value='2'>Отправить данные на шлюз</option>";
                 tmp += (String)"<option "+(t == 3 ? "selected":"")+" value='3'>Отправить по UDP сети</option>";
                 tmp += (String)"<option "+(t == 4 ? "selected":"")+" value='4'>Управление таймерами</option>";
+                tmp += (IsStr(type, StudioLight) ? (String)"<option "+(t == 5 ? "selected":"")+" value='5'>Выполнить скрипт освещения</option>" : "");
                 return tmp;
             }
 			
@@ -108,6 +110,7 @@ class MichomeUDP
 			void EventSendGateway(UDPTHandlerFunction action){ForGTW = action;};
 			void EventSendURL(UDPTHandlerFunction action){ForURL = action;};
 			void EventTimersData(UDPTHandlerFunction action){ForTIM = action;};
+			void EventLightScript(UDPTHandlerFunction action){ForLSC = action;};
         private:
             WiFiUDP UDP;
             unsigned int localUdpPort = 4210;
@@ -124,5 +127,6 @@ class MichomeUDP
 			UDPTHandlerFunction ForGTW;
 			UDPTHandlerFunction ForURL;
 			UDPTHandlerFunction ForTIM;
+			UDPTHandlerFunction ForLSC;
 };
 #endif // #ifndef MichomUDP_h

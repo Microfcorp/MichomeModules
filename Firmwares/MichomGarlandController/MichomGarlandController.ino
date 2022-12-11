@@ -4,7 +4,7 @@
  
 char* DefaultID = "Garland_Controller";
 const char* type = StudioLight; //GenerateTypes(new String[2]{String(StudioLight), String(HDC1080md)}, 2);
-const double FIRModuleVersion = 1.6;
+const double FIRModuleVersion = 1.62;
 /////////настройки//////////////
 
 RTOS rtos(604000);

@@ -5,9 +5,9 @@
 
 #define ONE_WIRE_BUS 10
 
-const char* id = "termometr_okno";
+char* id = "termometr_okno";
 const char* type = Termometr;
-double VersionTermometr = 1.61;
+double VersionTermometr = 1.62;
 /////////настройки//////////////
 
 Michome michome(id, type, VersionTermometr);
@@ -60,7 +60,7 @@ void loop ( void ) {
   
   if(michome.GetSettingRead()){
     terms.ChangeTime(michome.GetSetting("update").toInt());
-  }
+  } 
 }
 
 float GetTemp(){

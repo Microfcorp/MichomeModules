@@ -3,11 +3,36 @@
 #include "Arduino.h"
 
 #include <Udp.h>
+#include <RTOS.h>
 
 #define SEVENZYYEARS 2208988800UL
 #define NTP_PACKET_SIZE 48
 #define NTP_DEFAULT_LOCAL_PORT 1337
 #define LEAP_YEAR(Y)     ( (Y>0) && !(Y%4) && ( (Y%100) || !(Y%400) ) )
+
+typedef struct DateTime //Текущее дата и время
+{
+    byte Hour; 
+    byte Minutes; 
+	byte Seconds; 
+	byte Day; 
+    byte Mounth; 
+    byte Year; 
+	
+	int ToMinutes(){
+		return (Hour*60) + Minutes;
+	}
+	int ToSeconds(){
+		return (Hour*60*60) + (Minutes*60) + Seconds;
+	}
+};
+
+/*typedef struct OnlyTime //Текущее время
+{
+    byte Hour; 
+    byte Minutes; 
+	byte Seconds; 
+};*/
 
 class NTPClient {
   private:
@@ -26,6 +51,11 @@ class NTPClient {
     byte          _packetBuffer[NTP_PACKET_SIZE];
 
     void          sendNTPPacket();
+	
+	RTOS 		  updater         = RTOS(998);
+	DateTime 	  cDT;
+	//OnlyTime 	  cT;
+	void		  updateDT();
 
   public:
     NTPClient(UDP& udp);
@@ -66,7 +96,9 @@ class NTPClient {
      */
     bool forceUpdate();
 
+    int getDayWeek() const;
     int getDay() const;
+    int getMounth() const;
     int getHours() const;
     int getMinutes() const;
     int getSeconds() const;
@@ -104,6 +136,8 @@ class NTPClient {
      * @return time in seconds since Jan. 1, 1970
      */
     unsigned long getEpochTime() const;
+	
+	DateTime getDateTime() const;
 
     /**
      * Stops the underlying UDP client

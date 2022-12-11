@@ -6,13 +6,24 @@
 #else
   #include "WProgram.h"
 #endif 
+//#define USE_SPIFFS
+#define USE_LITTLEFS
+//#define USE_SDFS
 
 #define ToCharptr(str) (const_cast<char *>(str.c_str()))
 #define ToCharArray(str) ((const char *)str.c_str())
 #define GetHost ((String)MainConfig.Geteway + MichomePHPPath)
 #define IsStr(str, str2) ((str.indexOf(str2) != -1))
 
-#define FVer 2.12
+#if defined(ADCV)
+	#define InitADC ADC_MODE(ADC_VCC)
+#else
+	#define InitADC
+#endif
+
+#define CreateMichome InitADC
+
+#define FVer 2.16
 
 #define BuiltLED 2
 #define CountOptionFirmware 10
@@ -25,6 +36,8 @@
 #define MichomePHPPath "/michome/getpost.php"
 
 #define WIFIMode WIFI_AP_STA //WIFI_AP_STA
+#define DefaultWIFIStandart WIFI_PHY_MODE_11G //WIFI_PHY_MODE_11N
+#define SerialSpeed 921600
 
 #define UTC3 10800 //Utc+3
 #define NTPServer "pool.ntp.org"
@@ -34,9 +47,6 @@
 #include "GetewayData.h"
 #include <math.h>
 #include <ModuleTypes.h>
-/* extern "C" {
-#include "user_interface.h"
-} */
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
 #include <WiFiClient.h>
@@ -62,7 +72,14 @@
 #include <WebPages.h>
 #include <Telnet.h>
 #include <MichomUDP.h>
+//#include <fsbrowser.h>
 
+/* #ifdef ESP8266
+extern "C" {
+#include "user_interface.h"
+}
+#endif
+ */
 typedef enum OptionsFirmware{LightModule, TimerLightModules, UDPTrigger, WST28, Infrometers, Termometers, MSInfoos};
 
 typedef struct WIFINetwork //Настройки WIFI части
@@ -76,23 +93,22 @@ typedef struct WIFIConfig //Настройки WIFI части
     WIFINetwork WIFI[CountWIFI];
     char Geteway[WL_SSID_MAX_LENGTH]; //Адрес шлюза
     bool UseGeteway; //Использовать ли шлюз
+	WiFiPhyMode_t WIFIType; //Стандарт сети WiFi
+	char IDModule[WL_SSID_MAX_LENGTH]; //Стандарт сети WiFi
 };
 
 typedef std::function<void(void)> THandlerFunction;
 
 class Michome
 {
-        public:
-                #ifdef ADCV
-                    ADC_MODE(ADC_VCC);
-                #endif
+        public:                
                 //Объявление класса
                 Michome(){VoidRefreshData = [&](){DefaultRefresh();}; SetOptionFirmware(UDPTrigger, true);};
                 //Объявление класса
-                Michome(const char* _ssid, const char* _password, const char* _id, const char* _type, const char* _host1, double FirmwareVersion);
+                Michome(const char* _ssid, const char* _password, char* _id, const char* _type, const char* _host1, const double FirmwareVersion);
                 #ifndef NoFS
                 //Объявление класса
-                    Michome(const char* _id, const char* _type, double FirmwareVersion);
+                    Michome(char* _id, const char* _type, const double FirmwareVersion);
                 #endif
                 //Отправить GET запрос
                 String SendDataGET(String gateway, String host, int Port);
@@ -157,7 +173,7 @@ class Michome
                 MichomeUDP& GetUDP();
                 //Парсинг JSON данных
                 String ParseJson(String type, String data); 
-                String ParseJson(String data) {return ParseJson(GetModule(0), data);} 
+                String ParseJson(String data) {return ParseJson(GetModule(1), data);} 
                 //Установить формат настроек
                 void SetFormatSettings(int count);
                 //Считать ли настройки
@@ -176,7 +192,7 @@ class Michome
 				}
 				//Получить конфигуратор
 				void GetConfigerator(){
-					WebConfigurator(&GetServer(), (String)MainConfig.WIFI[0].SSID, (String)MainConfig.WIFI[0].Password,(String)MainConfig.WIFI[1].SSID, (String)MainConfig.WIFI[1].Password,(String)MainConfig.WIFI[2].SSID, (String)MainConfig.WIFI[2].Password, (String)MainConfig.Geteway, MainConfig.UseGeteway);
+					WebConfigurator(&GetServer(), (String)MainConfig.WIFI[0].SSID, (String)MainConfig.WIFI[0].Password,(String)MainConfig.WIFI[1].SSID, (String)MainConfig.WIFI[1].Password,(String)MainConfig.WIFI[2].SSID, (String)MainConfig.WIFI[2].Password, (String)MainConfig.Geteway, MainConfig.UseGeteway, MainConfig.WIFIType, (String)MainConfig.IDModule);
 				}
 				//Найден ли данные ssid в списке
 				bool IsFoundSSID(String ssid){
@@ -198,7 +214,7 @@ class Michome
                 //Время работы модуля
                 long GetRunningTime(){return millis();};
                 //Моргать при обновении прошивки через OTA
-                bool IsBlinkOTA = true;
+                //bool IsBlinkOTA = true;
 				//Включено ли использование шлюза
 				bool IsUsingGateway(){
 					return MainConfig.UseGeteway;
@@ -207,24 +223,19 @@ class Michome
 				void SetRefreshData(THandlerFunction voids){VoidRefreshData = voids;};
 				//Производит сбор данных и их отправку на шлюз
 				void Refresh(){VoidRefreshData();};
-				void PortPrint(String text, bool newline = false){
-					#if defined(UsePortPrint)
-						if(newline){
-							Serial.println(text);
+				void PortPrint(String text, bool newline = false){				
+					if(newline){
+						Serial.println(text);
+						#ifdef UsePortPrint
 							telnetmodule.println(text);
-						}
-						else{
-							Serial.print(text);
+						#endif
+					}
+					else{
+						Serial.print(text);
+						#ifdef UsePortPrint
 							telnetmodule.print(text);
-						}
-					#else
-						if(newline){
-							Serial.println(text);
-						}
-						else{
-							Serial.print(text);
-						}
-					#endif
+						#endif
+					}
 				}
 				void PortPrintln(String text){PortPrint(text, true);}
                 //Если FS разрешена
@@ -232,11 +243,11 @@ class Michome
                     //Объект логов файловой системы
                     FSLoging FSLoger;
 					void AddLogFile(String Log, bool printserial = true){
-						if(printserial)
-							Serial.println("LOG: " + timeClient.getFormattedDateTime() + " - " + Log);
 						FSLoger.AddLogFile(timeClient.getFormattedDateTime() + " - " + Log);
+						if(printserial)
+							Serial.println("LOG: " + timeClient.getFormattedDateTime() + " - " + Log);						
 						#ifdef PrintLogToTelnet
-							telnetmodule.println("LOG: " + Log);
+							telnetmodule.println("LOG: " + timeClient.getFormattedDateTime() + " - " + Log);
 						#endif
 					}
                 #endif
@@ -254,13 +265,14 @@ class Michome
 				String GetFormattedTime() const{return timeClient.getFormattedTime();}
 				String GetFormattedDate() const{return timeClient.getFormattedDate();}
 				String GetFormattedDateTime() const{return timeClient.getFormattedDateTime();}
+				DateTime GetDateTime() const{return timeClient.getDateTime();}
         private:
 			ESP8266WiFiMulti wifiMulti;
             WIFIConfig MainConfig;
 			Telnet telnetmodule = Telnet(23, id);
 			MichomeUDP udpmodule = MichomeUDP(id, type);
             DNSServer dnsServer;
-            const char* id; const char* type; const char* host1;           
+            char* id; const char* type;           
             MDNSResponder mdns;
             void _init(void);
             String settings;  
@@ -313,5 +325,8 @@ class Michome
 			void DefaultRefresh(){
 				SendData();
 			}
+			#ifdef ADCV
+				ADC_MODE(ADC_VCC);
+			#endif
 };
 #endif // #ifndef Michom_h

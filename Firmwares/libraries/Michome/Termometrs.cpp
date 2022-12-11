@@ -40,7 +40,7 @@ void TermometrModules::init(){
 	  (*telnLM).on("gettemp","Reading temperatures {gettemp;}");
 	  (*telnLM).on("gettempinfo","Gets termometers informations {gettempinfo;}");
 	  (*telnLM).on("resettemp","Reset termometers {resettemp;}");
-	  (*telnLM).on("inittemp","Initializations termometers {inittemp;}");
+	  (*telnLM).on("inittemp","Initializations termometers {inittemp;}");	
 }
 
 void TermometrModules::TelnetRun(String telnd){

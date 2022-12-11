@@ -5,9 +5,9 @@
 
 #define ButtonPin 12
 
-const char* id = "SmartRelay";
+char* id = "SmartRelay";
 const char* type = StudioLight; //стандартный тип модуля освещения
-double Version = 1.1;
+double Version = 1.22;
 /////////настройки//////////////
 
 RTOS rtos(604000); //время опроса до сервера
@@ -22,7 +22,7 @@ GButton butt1(ButtonPin); //Класс кнопки
 byte clicks = 0; //Количетво нажатий
 
 void setup ( void ) {
-  lm.AddPin({14, Relay}); //Дабавить пин 5 с типом PWM 
+  lm.AddPin({14, Relay}); //Дабавить пин 14 с типом Relay 
   michome.SetRefreshData([&](){michome.SendData();});
   
   lm.TelnetEnable = true; //Включена поддержка telnet запросов
@@ -59,7 +59,7 @@ void loop ( void ) {
   else clicks = 0;
 
   if (clicks > 1) {
-    michome.GetUDP().SendTrigger("SmartRelayButton", String(clicks));
+    michome.GetUDP().SendTrigger(michome.GetModule(0)+"Button", String(clicks));
     michome.SendData(michome.ParseJson("get_button_press", String(ButtonPin)+"="+String(clicks)));
   }
   else if (clicks == 1) {

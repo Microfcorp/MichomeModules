@@ -1,12 +1,11 @@
-#define IsLCDI2C
-
 #include <Michom.h>
 #include <InformetrModule.h>
 #include "GyverButton.h"
+#define IsLCDI2C
 
-const char* id = "Informetr_Pogoda";
+char* id = "Informetr_Pogoda";
 const char* type = Informetr;
-double VersionTermometr = 2.3;
+double VersionTermometr = 2.5;
 /////////настройки//////////////
 
 #define LightPin 12
@@ -23,6 +22,8 @@ Michome michome(id, type, VersionTermometr);
 InformetrModule module(&michome);
 
 ESP8266WebServer& server1 = michome.GetServer();
+
+CreateMichome;
 
 void setup(void) 
 {

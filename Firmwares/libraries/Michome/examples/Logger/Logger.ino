@@ -1,6 +1,6 @@
 #include <Michom.h>
 
-const char* id = "Logger";
+char* id = "Logger";
 const char* type = "Log";
 double VersionUploader = 1.1;
 /////////настройки//////////////
@@ -10,6 +10,8 @@ Michome michome(id, type, VersionUploader);
 Logger debuging = michome.GetLogger();
 
 ESP8266WebServer& server1 = michome.GetServer();
+
+CreateMichome;
 
 void setup(void) 
 {      

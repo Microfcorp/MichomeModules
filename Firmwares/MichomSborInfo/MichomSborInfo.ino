@@ -8,11 +8,12 @@
 
 /////////настройки//////////////
 
-const char* id = "sborinfo_tv";
-const char* type = "msinfoo";
+char* id = "sborinfo_tv";
+const char* type = Msinfoo;
+double VersionTermometr = 1.9;
 /////////настройки//////////////
 
-Michome michome(id, type, host, host1);
+Michome michome(id, type, VersionTermometr);
 MSInfoo msi(&michome);
 
 DHT dht(DHTPIN, DHTTYPE, 15);
@@ -49,32 +50,24 @@ void setup() {
 
   msi.SetMSInfooInfoHandler([&](){
     return "Используются: BMP185 и DHT11";    
-  });  
+  });   
 
-  server1.on("/refresh", [](){ 
-      server1.send(200, "text/html", "OK");
-      SendData();
-  });  
+  michome.SetRefreshData([](){msi.SendData();});
+ 
+  michome.init(false);
 
-    michome.SetRefreshData([](){terms.SendData();});
-
-   
-  michome.init(false);  
+  if(michome.IsSaveMode) return;
+  msi.init();
   
-  SendData();
+  michome.Refresh();  
 }
 void loop() {
   michome.running();
 
+  if(michome.IsSaveMode) return;
+  msi.running();
+  
   if(michome.GetSettingRead()){
-    rtos.ChangeTime(michome.GetSetting("update").toInt());
+    msi.ChangeTime(michome.GetSetting("update").toInt());
   }
-
-  if (rtos.IsTick()) {
-    SendData();
-  }
-}
-
-void SendData(){
-  michome.SendData(michome.ParseJson(String(type), String(bmp.readPressure()/133.332)+";"+String(bmp.readTemperature())+";"+String(bmp.readAltitude())+";"+String(dht.readTemperature())+";"+String(dht.readHumidity())));
 }

@@ -11,10 +11,13 @@ InformetrModule::InformetrModule(Michome *m)
 
 void InformetrModule::init()
 {
+		(*gtw).preInit();
+		Load();
 	//#ifdef IsLCDI2C
 		lcd.init();
 		delay(10);
 		lcd.noBacklight();
+		lcd.setCursor(0, 0);
 		lcd.print((*gtw).GetModule(0)); //ID
 		lcd.setCursor(0, 1);
 		lcd.print("Start module..."); //ID
@@ -76,6 +79,39 @@ void InformetrModule::init()
 			parse(server1.arg(0));
 			server1.send(200, "text/html", "OK");
 		});
+		server1.on("/inform", [&]() {
+			if(server1.arg("type") == "show" || !server1.hasArg("type")){
+				if (!server1.chunkedResponseModeStart(200, "text/html")) {
+					server1.send(505, F("text/html"), F("HTTP1.1 required"));
+					return;
+				}
+				server1.sendContent(F("<head>"));
+				server1.sendContent(Styles);
+				server1.sendContent(MainJS);
+				server1.sendContent(AJAXJs);
+				server1.sendContent(F("<script>function GetDataINF(){postAjax('/inform?type=get', GET, '', function(d){ab = d.split(';'); document.getElementById(\"startD\").value = (parseInt(ab[0]) < 10 ? '0' : '') + ab[0] + ':' + (parseInt(ab[1]) < 10 ? '0' : '') + ab[1]; document.getElementById(\"stopD\").value = (parseInt(ab[2]) < 10 ? '0' : '') + ab[2] + ':' + (parseInt(ab[3]) < 10 ? '0' : '') + ab[3];});} function sendTimeD(){var sth = document.getElementById(\"startD\").value.split(':')[0]; var stm = document.getElementById(\"startD\").value.split(':')[1]; var soh = document.getElementById(\"stopD\").value.split(':')[0]; var som = document.getElementById(\"stopD\").value.split(':')[1]; postAjax('/inform?type=set&sth='+sth+'&stm='+stm+'&soh='+soh+'&som='+som, GET, '', function(d){}); } window.setTimeout('GetDataINF()',1);</script>"));
+				server1.sendContent(F("<title>Конфигурация информетра</title><meta http-equiv='Content-Type' content='text/html; charset=utf-8'></head><body>"));
+				server1.sendContent(F("<table><tr><td>Время включения дисплея</td><td>Время выключения дисплея</td></tr>              <tr><td><input required type='time' id='startD' onchange='sendTimeD()' /></td>  <td><input required type='time' id='stopD' onchange='sendTimeD()' /></td></tr></table>"));
+			}
+			else if(server1.arg("type") == "get"){
+				String data = "";
+				data += (String)Setting.StartDisplay.Hour + ";" + (String)Setting.StartDisplay.Minutes + ";" + (String)Setting.StopDisplay.Hour + ";" + (String)Setting.StopDisplay.Minutes + ";";
+				server1.send(200, "text/html", data);
+			}
+			else if(server1.arg("type") == "set"){
+				int StH = server1.arg("sth").toInt();
+				int StM = server1.arg("stm").toInt();
+				int SoH = server1.arg("soh").toInt();
+				int SoM = server1.arg("som").toInt();
+				
+				Setting.StartDisplay.Hour = StH;
+				Setting.StartDisplay.Minutes = StM;
+				Setting.StopDisplay.Hour = SoH;
+				Setting.StopDisplay.Minutes = SoM;
+				Save();
+				server1.send(200, F("text/html"), F("OK"));
+			}
+		});
 		UpdateLight.Start();	
 
 		/*((*gtw).GetTelnet()).on("minusday","LoL", [&]() {
@@ -92,7 +128,7 @@ void InformetrModule::parse(String datareads)
         lcd.print("Error Update");
 	    (*gtw).AddLogFile("Data parsing error");
 		if(!IsReadData){
-			WorkMode = Weather;
+			WorkMode = Weather; //Это что бы включить часы, когда ошибка данных
 			InverseWorkMode();
 		}
         return;
@@ -151,6 +187,10 @@ void InformetrModule::parse(String datareads)
       lcd.setCursor(0, 0);
       lcd.print("Updating OK.");
 	  (*gtw).PortPrintln("Updating data OK");
+	  if(!IsReadData){
+		WorkMode = Watch; //Это что бы включить погоду, когда данные были получены
+		InverseWorkMode();
+	  }
 	  IsReadData = true;
 	  rtos1.Stop();
 	  rtos2.Start();
@@ -182,8 +222,39 @@ void InformetrModule::parseH(String datareads)
 	}
 }
 
+void InformetrModule::Save() {	
+	File f = LittleFS.open("/informetr.bin", "w");
+    if (!f) {
+        Serial.println("Error open informetr.bin for write");  //  "открыть файл не удалось"
+        return;
+    }
+    else{
+        f.write((byte *)&Setting, sizeof(Setting));
+		f.close();                    
+        return;
+    }
+}
+
+void InformetrModule::Load() {	
+	InformetrSetting ss;
+    
+    File f = LittleFS.open("/informetr.bin", "r");
+    if (!f) {
+        ss.StartDisplay = (*gtw).GetDateTime();
+        ss.StopDisplay = (DateTime){21, 0, 0, 0, 0, 0};
+		Save();
+		Setting = ss;
+    }
+    else{
+        f.read((byte *)&ss, sizeof(ss));
+		f.close();
+		Serial.println("Informetr configuration file sucess reading");  //  "открыть файл не удалось"		
+        Setting = ss;
+    }
+}
+
 void InformetrModule::LoadHourlyPrognoz() {	
-	if (!EtherFail){
+	if (!EtherFail && IsReadData){
 		lcd.createChar(7, clockI);
 		lcd.setCursor(0, 1);
 		lcd.write(7);
@@ -242,7 +313,7 @@ void InformetrModule::printpause()
 void InformetrModule::nodat()
 {
 	lcd.clear();
-	lcd.setCursor(1, 0);
+	lcd.setCursor(0, 0);
     lcd.print((*gtw).GetModule(0));
 	lcd.setCursor(2, 1);
     lcd.print("No data read");
@@ -391,9 +462,11 @@ void InformetrModule::printLCD(LCDDataPrint dt)
 		lcd.setCursor(4, 1);	
 		lcd.print((*gtw).GetFormattedTime());	
 	}
-	else if(dt.Symbols == Day){		
+	else if(dt.Symbols == Day){	
+		lcd.setCursor(0, 1);
+		PrintTextDayFromDate(dt.Data.ToDate);
         lcd.setCursor(0, 0);
-        lcd.print(dt.Data.ToDate);
+        lcd.print(dt.Data.ToDate);		
         lcd.blink();
 	}
 }

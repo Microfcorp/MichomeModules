@@ -13,14 +13,21 @@
 #define MaxSelH 4
 #define PathToPrognoz "/michome/api/getprognoz.php?type=json"
 
+#define IsLCDI2C
+
+#define ChangeLightForSettings //Управление подсветкой по настройкам или по данным со шлюза
+
 #include <Michom.h>
 #include <LinkedList.h>
 #include <ArduinoJson.h>
-//#ifdef IsLCDI2C
+
+#ifdef IsLCDI2C
 	#include <LiquidCrystal_I2C.h>
+	//#define IsLCD1602I2C
 	#include <Wire.h>
 	#include <lcd/symbols_inf.h>
-//#endif
+	#include <lcd/symbols_russian.h>
+#endif
 
 typedef enum SymbolsBank { BIndoor, BOutDoor, Day, BHourly, Watcher };
 typedef enum WorkingModes { Weather, Watch };
@@ -41,7 +48,6 @@ typedef struct LCDDataPrint //для вывода на дисплей
     //byte IconsLine[2]; //Иконки по строкам
     LCDData Data; //Погодгые данные
 };
-
 
 typedef struct IndoorData
 {		
@@ -74,6 +80,14 @@ typedef struct ServerData //для хранения с сервера в ram
     bool LightEnable; //Управление подсветкой
 };
 
+typedef struct InformetrSetting //для хранения настроек информетра
+{
+    DateTime StartDisplay; //Домашние данные
+    DateTime StopDisplay; //Интернет данные
+	//HourlyData Hourly; //Интернет данные
+    //String ServerTime; //Серверное время
+    //bool LightEnable; //Управление подсветкой
+};
 
 class InformetrModule
 {
@@ -90,10 +104,10 @@ class InformetrModule
 				void printLCD(LCDDataPrint dt);
 				bool BacklightEnable = false; //Включение подстветки
 				bool PokazType = true; //тип экрана (прогноз (сменный)) или домашний (статичный)
-				void InversePokazType(){PokazType =! PokazType; if(!PokazType) i1(); else i2();}
+				void InversePokazType(){if(!IsReadData || WorkMode == Watch) return; PokazType =! PokazType; if(!PokazType) i1(); else i2();}
 				bool pause = false; // пауза обновления и отображения				
 				bool IsAutoUpdate = true; //автоматически обновлять данные по таймеру
-				void InverseHourlyDay(){IsHourly =! IsHourly; if(IsHourly){ LoadHourlyPrognoz(); i1();} else i2();} //Включает почасовой прогноз
+				void InverseHourlyDay(){if(WorkMode == Watch) return; IsHourly =! IsHourly; if(IsHourly){ LoadHourlyPrognoz(); i1();} else i2();} //Включает почасовой прогноз
                 void InverseWorkMode(){if(WorkMode == Weather) {WorkMode = Watch; rtos1.Stop(); rtos2.Stop(); rtos3.Start();} else {WorkMode = Weather; rtos3.Stop(); rtos2.Start();} i1();}
 				
         private:
@@ -117,7 +131,10 @@ class InformetrModule
 			
 			int selhours[MaxSelH];
 			
+			InformetrSetting Setting;
 			ServerData Server;
+			void Save();
+			void Load();
 			void parse(String datareads);
 			void parseH(String datareads);
 			void printpause();
@@ -143,6 +160,30 @@ class InformetrModule
 				return d;
 			}
 			
+			void PrintTextDayFromDate(String todate){
+				int year = (*gtw).Split(todate, '-', 0).toInt();
+				int mounth = (*gtw).Split(todate, '-', 1).toInt();
+				int day = (*gtw).Split(todate, '-', 2).toInt();
+				DateTime CD = (*gtw).GetDateTime();
+				
+				if(year == CD.Year && mounth == CD.Mounth && day == CD.Day){
+					lcd.createChar(0, rus_G);
+					lcd.createChar(1, rus_D);
+					lcd.createChar(2, rus_YA);
+					lcd.print("Ce");
+					lcd.write(0);
+					lcd.write('O');
+					lcd.write(1);
+					lcd.write('H');
+					lcd.write(2);
+				}
+				else if((year == CD.Year && mounth == CD.Mounth && day == CD.Day + 1) || (year == CD.Year && mounth == CD.Mounth && day == 1 && (CD.Day == 30 || CD.Day == 31))){
+					lcd.createChar(0, rus_Z);
+					lcd.write(0);
+					lcd.print("ABTPA");				
+				}
+			}
+			
 			void GenerateSelHours(){
 				if(Server.Hourly.Count <= MaxSelH)
 					for(int i = 0; i < MaxSelH; i++)
@@ -156,10 +197,28 @@ class InformetrModule
 					}
 				}						
 			}
+			#if defined(ChangeLightForSettings)
+				bool IsOnLight(){
+					int StartMinutes = Setting.StartDisplay.ToMinutes();
+					int StopMinutes = Setting.StopDisplay.ToMinutes();
+					int CurrentMinutes = (*gtw).GetDateTime().ToMinutes();
+					// 120  150  210
+					// 120  10   210
+					if(CurrentMinutes < StartMinutes && CurrentMinutes >= StopMinutes)
+						return false;
+					else if(CurrentMinutes >= StartMinutes && CurrentMinutes < StopMinutes)
+						return true;
+					else return false;
+				}
+			#endif
 			
 			//#ifdef IsLCDI2C
 				void ChangeLight(){
+					#if defined(ChangeLightForSettings)
+					if(BacklightEnable || IsRunLight || IsOnLight())
+					#else
 					if(BacklightEnable || IsRunLight || Server.LightEnable)
+					#endif
 						lcd.backlight();
 					else lcd.noBacklight(); //Выключаем свет
 				}

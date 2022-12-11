@@ -9,12 +9,16 @@
     #error "Error Read Geteway Data File";     
 #endif
 
+#ifdef EnableFSManager
+	#include <fsbrowser.h>
+#endif
+
 ESP8266WebServer server(80);
 
 //
 // конструктор - вызывается всегда при создании экземпляра класса Michome
 //
-Michome::Michome(const char* _ssid, const char* _password, const char* _id, const char* _type, const char* _host1, double FirmwareVersion)
+Michome::Michome(const char* _ssid, const char* _password, char* _id, const char* _type, const char* _host1, const double FirmwareVersion)
 {
 	strncpy(MainConfig.WIFI[0].SSID, _ssid, WL_SSID_MAX_LENGTH);
 	strncpy(MainConfig.WIFI[0].Password, _password, WL_WPA_KEY_MAX_LENGTH);
@@ -34,7 +38,7 @@ Michome::Michome(const char* _ssid, const char* _password, const char* _id, cons
 //
 // конструктор - вызывается всегда при создании экземпляра класса Michome
 //
-Michome::Michome(const char* _id, const char* _type, double FirmwareVersion)
+Michome::Michome(char* _id, const char* _type, const double FirmwareVersion)
 {   
     //ssid = "";
     //password = "";
@@ -93,9 +97,19 @@ void Michome::init()
 void Michome::preInit(void)
 {
 	if(!IsPreInt){
+		#ifndef NoSerial
+			Serial.begin(SerialSpeed);
+			Serial.setDebugOutput(false); //Куча логов. Путти нормально их не ест
+		#endif 
+	
 		#ifndef NoFS
 			if (!LittleFS.begin()) {
 				Serial.println("LittleFS mount failed");
+			}
+			if(IsNeedReadConfig){
+				MainConfig = ReadWIFIConfig();
+				if(MainConfig.IDModule != "" && MainConfig.IDModule != "\0")
+					id = MainConfig.IDModule;				
 			}
 		#endif   
 		IsPreInt = true;
@@ -105,9 +119,9 @@ void Michome::preInit(void)
 // Инициализация в Setup
 //
 void Michome::_init(void)
-{
-    pinMode(BuiltLED, OUTPUT);
-    #ifdef StartLED
+{	
+	pinMode(BuiltLED, OUTPUT); 
+	#ifdef StartLED		  
         digitalWrite(BuiltLED, LOW);
     #endif
 	
@@ -118,16 +132,11 @@ void Michome::_init(void)
 	
 	preInit();
 	
-	#ifndef NoSerial
-        Serial.begin ( 115200 );
-        Serial.setDebugOutput(false); //Куча логов. Путти нормально их не ест
-    #endif 
+	#if defined(DebugConnection)
+	    Serial.println("----------Module core is starting----------");
+    #endif				
 	
     #ifndef NoFS
-		if (!LittleFS.begin()) {
-			Serial.println("LittleFS mount failed");
-			return;
-		}
         AddLogFile("Start CPU OK", false);
 		if(IsSaveMode){
 			AddLogFile("Safe Mode Enable", false);
@@ -138,25 +147,25 @@ void Michome::_init(void)
       Serial.println("");      
       
       ArduinoOTA.setHostname(id);     
-      ArduinoOTA.onStart([this]() {
+      ArduinoOTA.onStart([&]() {
         Serial.println("Start");
         #ifndef NoFS
             AddLogFile("Update OTA Start", false);
         #endif
       });     
-      ArduinoOTA.onEnd([this]() {
+      ArduinoOTA.onEnd([&]() {
         Serial.println("\nEnd");
         #ifndef NoFS
-            AddLogFile("Update OTA End", false);
+            AddLogFile("Update OTA Success", false);
         #endif
       });
-      ArduinoOTA.onProgress([this](unsigned int progress, unsigned int total) {
-        if(IsBlinkOTA){
+      ArduinoOTA.onProgress([&](unsigned int progress, unsigned int total) {
+        #ifdef IsBlinkOTA
             StrobeBuildLed(10);
-        }
+        #endif
         Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
       });
-      ArduinoOTA.onError([this](ota_error_t error) {
+      ArduinoOTA.onError([&](ota_error_t error) {
         Serial.printf("Error[%u]: ", error);
         if (error == OTA_AUTH_ERROR) {
           Serial.println("Auth Failed");
@@ -185,15 +194,14 @@ void Michome::_init(void)
           #endif
         }
       });
-      ArduinoOTA.begin();      
+      ArduinoOTA.begin();  
       
 	  #if defined(DebugConnection)
+        Serial.println("----------Module core is loading----------");
         Serial.println("----------Module Connection is starting----------");
       #endif
 	  
-      if(IsNeedReadConfig){
-           MainConfig = ReadWIFIConfig();         
-                               
+      if(IsNeedReadConfig){                                        
            #if defined(DebugConnection)
 		    Serial.println("Setting readed from " + (String)CountWIFI + " points");
 		    for(int i = 0; i < CountWIFI; i++){
@@ -206,16 +214,20 @@ void Michome::_init(void)
       }             
       
       #if defined(UsingFastStart)
-		if(!IsFoundSSID(WiFi.SSID()))
+		#if defined(DebugConnection)
+			Serial.println("Fast Start is enable");
+		#endif
+		if(!IsFoundSSID(WiFi.SSID())){
 			WiFi.disconnect(true);
+			#if defined(DebugConnection)
+				Serial.println("Disconected from Fast Start");
+			#endif
+		}
 		
         wl_status_t status = WiFi.status();
 		if(status == WL_DISCONNECTED || status == WL_NO_SSID_AVAIL || status == WL_IDLE_STATUS || status == WL_CONNECT_FAILED){
             ChangeWiFiMode();
-        }
-		#if defined(DebugConnection)
-			Serial.println("Fast Start is enable");
-		#endif
+        }		
       #else
         WiFi.disconnect(true);     
 		ChangeWiFiMode();
@@ -258,14 +270,14 @@ void Michome::_init(void)
       
 		  if(wifiMulti.run() != WL_CONNECTED || !IsConfigured){
 			  #ifndef NoFS
-				AddLogFile("Error Connecting to "+String(WiFi.SSID())+" - WIFI", false);
-				AddLogFile("Start AP", false);
+				AddLogFile("Error Connecting to all - WIFI", false);
+				AddLogFile("Starting AP", false);
 			  #endif
 			  #if defined(DebugConnection)
-				Serial.println("Error Connecting to "+String(WiFi.SSID())+" - WIFI");
-				Serial.println("Start AP");
+				Serial.println("Error Connecting to all - WIFI");
+				Serial.println("Starting AP");
 			  #endif			  
-			  StrobeBuildLedError(2, LOW);
+			  StrobeBuildLedError(8, LOW);
 			  CreateAP();
 			  IsConfigured = false;
 		  }
@@ -403,19 +415,29 @@ void Michome::_init(void)
         String tmpe = (String)Michome::id + (isgetawaytype ? "/n" : "<br />") + (String)Michome::type + (isgetawaytype ? "/n" : "<br />") + String(WiFi.RSSI()) + (isgetawaytype ? "/n" : "<br />") + String(WiFi.localIP().toString()) + (isgetawaytype ? "/n" : "<br />");
         tmpe += String(ESP.getFlashChipRealSize()) + (isgetawaytype ? "/n" : "<br />");
         #if defined(ADCV)
-            tmpe += String(ESP.getVcc()) + (isgetawaytype ? "/n" : "<br />");
+            tmpe += String((float)ESP.getVcc()/1024.0f) + (isgetawaytype ? "/n" : "<br />");
         #else
             tmpe += String("null") + (isgetawaytype ? "/n" : "<br />");
         #endif
 		tmpe += String(ESP.getFreeHeap()) + (isgetawaytype ? "/n" : "<br />");
         tmpe += String(ESP.getFreeSketchSpace()) + (isgetawaytype ? "/n" : "<br />");
         tmpe += String(ESP.getResetReason()) + (isgetawaytype ? "/n" : "<br />");
+        tmpe += String(FirVersion) + (isgetawaytype ? "/n" : "<br />");
+        tmpe += String(FVer) + (isgetawaytype ? "/n" : "<br />");
+        tmpe += String(__DATE__) + (isgetawaytype ? "/n" : "<br />");
+        tmpe += String(__TIME__) + (isgetawaytype ? "/n" : "<br />");
+        tmpe += String(__BASE_FILE__ ) + (isgetawaytype ? "/n" : "<br />");
+		#if defined(EnableFSManager)
+            tmpe += String("fsmanageron") + (isgetawaytype ? "/n" : "<br />");
+        #else
+            tmpe += String("fsmanagerof") + (isgetawaytype ? "/n" : "<br />");
+        #endif
         server.send(200, "text/html", tmpe);
       });
       
       #ifdef ADCV
            server.on("/getvcc", [this](){
-            server.send(200, "text/html", String(ESP.getVcc()));
+            server.send(200, "text/html", String((float)ESP.getVcc()/1024.0f));
           });
       #endif
       
@@ -462,7 +484,9 @@ void Michome::_init(void)
         String pw1 = server.arg("password1");
 		String ss2 = server.arg("ssid2");
         String pw2 = server.arg("password2");
+        byte WiFIS = server.arg("wifistandart").toInt();
 		
+        String mid = server.arg("moduleid");
         String gt = server.arg("geteway");
         bool ug = server.hasArg("usegetaway") ? (server.arg("usegetaway") == "on") : false;
 		
@@ -475,20 +499,17 @@ void Michome::_init(void)
 		ss2.toCharArray(MainConfig.WIFI[2].SSID, WL_SSID_MAX_LENGTH);
 		pw2.toCharArray(MainConfig.WIFI[2].Password, WL_WPA_KEY_MAX_LENGTH);
 		
+		mid.toCharArray(MainConfig.IDModule, WL_SSID_MAX_LENGTH);		
 		gt.toCharArray(MainConfig.Geteway, WL_SSID_MAX_LENGTH);		
 		MainConfig.UseGeteway = ug;
+		MainConfig.WIFIType = (WiFiPhyMode_t)WiFIS;
 		
-        WriteWIFIConfig();
-        
-        if(ss0 == "" && pw0 == "")
-            IsConfigured = false;
-        else
-            IsConfigured = true;
+        WriteWIFIConfig();    
         
         AddLogFile("Config Saved");
-        server.send(200, "text/html", "Config Saved. Module restarting");
+        server.send(200, "text/html", RussianHead("Конфигурация модуля", MetaRefresh("/")) + "Config Saved. Module restarting..");
         yieldM();
-        delay(200);
+        delay(500);
         ESP.reset();
       });
       
@@ -499,7 +520,7 @@ void Michome::_init(void)
         IsConfigured = false;
         
         AddLogFile("Config Reset");
-        server.send(200, "text/html", "OK");
+        server.send(200, "text/html", RussianHead("Сброс настроек", MetaRefresh("/")));
         ESP.reset();
       });
 	  
@@ -530,6 +551,10 @@ void Michome::_init(void)
         FSLoger.ClearLogFile();
         server.send(200, "text/html", RussianHead("Отчистка логов..", MetaRefresh()) + "OK");    
       });
+	  
+	  #ifdef FSBrowser_h
+		InitFSBrowser(&server);
+	  #endif
 	  
 	  server.on("/fs", [this](){
 		String type = server.arg("type");
@@ -582,7 +607,7 @@ void Michome::_init(void)
       });     
       
       server.onNotFound([this](){
-        server.send(404, "text/html", "Not found from Michome module");
+        server.send(404, "text/html", "Not found on Michome module");
       });
 	  
 	  udpmodule.on(GetModule(0), [&](IPAddress from, String cmd){
@@ -604,6 +629,23 @@ void Michome::_init(void)
 		//SendData(ParseJson("UDPData", cmd));
 	  });
 	  
+	  udpmodule.on("SetGatewayIP", [&](IPAddress from, String cmd)
+	  {
+		String GATEWAYaddress = Split(cmd, '-', 1);
+		GATEWAYaddress.toCharArray(MainConfig.Geteway, WL_SSID_MAX_LENGTH);	
+		WriteWIFIConfig();
+		AddLogFile("Config Saved from change Gateway IP for UDP");
+        ESP.reset();
+	  });
+	  udpmodule.on("SetGatewayState", [&](IPAddress from, String cmd)
+	  {
+		bool GATEWAYstate = IsStr(Split(cmd, '-', 1), "on");
+		MainConfig.UseGeteway = GATEWAYstate;
+		WriteWIFIConfig();
+		AddLogFile("Config Saved from change Gateway state for UDP");
+        ESP.reset();
+	  });
+	  
 	  udpmodule.init(server);
       
       server.begin();
@@ -619,7 +661,7 @@ void Michome::_init(void)
       SSDP.setModelName(String("MichomModule-")+Michome::type);
       SSDP.setModelNumber("000000000001");
       SSDP.setModelURL("http://www.github.com/microfcorp/michome");
-      SSDP.setManufacturer("Microf-Corp");
+      SSDP.setManufacturer("Microf-Dev");
       SSDP.setManufacturerURL("http://www.github.com/microfcorp/michome");
       SSDP.begin();
 	  
@@ -663,7 +705,7 @@ void Michome::CreateAP(void){
 void Michome::running(void)
 {
 	#ifdef UsingWDT
-		ESP.wdtFeed();   // покормить пёсика
+		ESP.wdtFeed();   // покормить пёсика. ХА-ХА, фраза Гайвера. Приветик)
 	#endif
     	
 	#if defined(CheckWIFI)
@@ -675,7 +717,10 @@ void Michome::running(void)
 			#endif
 		}
 	#else
-		wifiMulti.run();
+		if(wifiMulti.run() == WL_CONNECTED){
+			if(!IsConfigured)
+				IsConfigured = true;
+		}
 	#endif
 
 	yieldWarn();
@@ -698,6 +743,8 @@ void Michome::ChangeWiFiMode(){
         wifi_set_sleep_type(NONE_SLEEP_T); //LIGHT_SLEEP_T and MODE_SLEEP_T
         delay(10);
     }
+	WiFi.setPhyMode(MainConfig.WIFIType);
+	WiFi.setOutputPower(20.5);
 }
 
 void Michome::StrobeBuildLedError(int counterror, int statusled){
@@ -708,7 +755,7 @@ void Michome::StrobeBuildLedError(int counterror, int statusled){
 
 #ifndef NoFS
 
-#pragma NoFS
+#pragma message NoFS
 
 WIFIConfig Michome::ReadWIFIConfig(){      
     WIFIConfig cf;
@@ -723,12 +770,16 @@ WIFIConfig Michome::ReadWIFIConfig(){
 		cf.WIFI[1] = nf;
 		cf.WIFI[2] = nf;
 		strncpy(cf.Geteway, "", sizeof(cf.Geteway));
+		strncpy(cf.IDModule, id, sizeof(cf.Geteway));
         cf.UseGeteway = false;
+		cf.WIFIType = DefaultWIFIStandart;
+		WriteWIFIConfig(cf);
         return cf;
     }
     else{
         f.read((byte *)&cf, sizeof(cf));
-		f.close();              
+		f.close();
+		Serial.println("Module configuration file sucess reading");  //  "открыть файл не удалось"		
         return cf;
     }    
 }
@@ -793,7 +844,7 @@ bool Michome::CheckConnectToGateway(){
 	    return false;
     }
 	
-	return SendDataGET(MichomePHPPath, GetGatewayHost(), GetGatewayPort()) != "";
+	return SendDataGET((String)MichomePHPPath+"?ischeckconnect=1", GetGatewayHost(), GetGatewayPort()) != "";
 }
   
 //
@@ -849,11 +900,7 @@ void Michome::SendData(String Data)
 		  if(!MainConfig.UseGeteway){
 			  Serial.println("Geteway is off");
 			  return;
-		  }
-       
-          #if !defined(NoFS) && !defined(NoAddLogSendData) && !defined(NoDataAddLogSendData)
-              AddLogFile("Sending data: " + Data, false);             
-          #endif         
+		  }           
           
 		  SendDataPOST(MichomePHPPath, GetGatewayHost(), GetGatewayPort(), Data);
           
@@ -861,7 +908,7 @@ void Michome::SendData(String Data)
 			AddLogFile("Send data OK");
           #endif
 
-          #ifdef DurationLog
+          #if defined(DurationLog) && !defined(NoAddLogSendData)
               unsigned long endtime = millis();                  
               AddLogFile("Time Sending: " + String(endtime - starttime));
           #endif
@@ -886,7 +933,7 @@ void Michome::yieldWarn(void){
 	telnetmodule.Running();
 	udpmodule.running();
 	#ifndef NoFS
-	if(!timeClient.update() && IsConfigured && NTPUpdate.IsTick()){					
+	if(!timeClient.update() && IsConfigured /*&& NTPUpdate.IsTick()*/){					
 		AddLogFile("NTP server time read error", true);		
 	}
 	#endif
@@ -917,14 +964,15 @@ String Michome::Split(String data, char separator, int index)
 }
 String Michome::ParseJson(String type, String data){
       #if defined(WriteDataToFile) && !defined(NoFS)
-        DataFile.AddTextToFile("Sending data ("+type+"): " + (data == "" ? "none data for parsing" : data));
+        DataFile.AddTextToFile("Parsing data ("+type+"): " + (data == "" ? "none data for parsing" : data));
       #endif
               
       String temp = "";
       temp += "{";
       temp += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-      temp += "\"rssi\":\"" + String(FirVersion) + "\",";
-      temp += "\"firmware\":\"" + String(WiFi.RSSI()) + "\",";
+      temp += "\"firmware\":\"" + String(FirVersion) + "\",";
+      temp += "\"rssi\":\"" + String(WiFi.RSSI()) + "\",";
+      temp += "\"mac\":\"" + String(WiFi.macAddress()) + "\",";
       temp += "\"secretkey\":\"" + sha1(String("MICHoMeMoDuLe")) + "\",";
       temp += "\"secret\":\"" + String("MICHoMeMoDuLeORIGINALFIRMWARE") + "\",";
 	  #ifdef TimeSending

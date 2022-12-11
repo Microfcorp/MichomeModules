@@ -3,11 +3,11 @@
 #include <TimerLightModule.h>
 #include <GyverButton.h>
 
-#define ButtonPin 13
+#define ButtonPin 10
 
-const char* id = "SmartRelay";
+char* id = "LightWorkstation";
 const char* type = StudioLight; //стандартный тип модуля освещения
-double Version = 1.1;
+double Version = 1.23;
 /////////настройки//////////////
 
 RTOS rtos(604000); //время опроса до сервера
@@ -22,7 +22,7 @@ GButton butt1(ButtonPin); //Класс кнопки
 byte clicks = 0; //Количетво нажатий
 
 void setup ( void ) {
-  lm.AddPin({12, Relay}); //Дабавить пин 5 с типом PWM 
+  lm.AddPin({14, PWM}); //Дабавить пин 5 с типом PWM 
   michome.SetRefreshData([](){michome.SendData();});
   
   lm.TelnetEnable = true; //Включена поддержка telnet запросов
@@ -37,6 +37,8 @@ void setup ( void ) {
 
 void loop ( void ) {
   michome.running(); //Цикличная функция работы
+  if(michome.IsSaveMode) return;
+  
   lm.running(); //Цикличная функция работы
   tlm.running(); //Цикличная функция работы
 
@@ -58,20 +60,20 @@ void loop ( void ) {
   if (butt1.hasClicks()){clicks = butt1.getClicks(); michome.PortPrint("Clicks="+String(clicks), true);}
   else clicks = 0;
 
-  if (clicks == 4 || clicks == 5) {
-    (michome.GetUDP()).SendTrigger("WorkstationButton", clicks == 4 ? "1" : "0");
+  if (clicks >= 4) {
+    (michome.GetUDP()).SendTrigger("WorkstationButton", clicks != 5 ? "1" : "0");
   }
   if (clicks == 3) {
-    lm.SetLightID(0, MaximumBrightnes/2);
+    lm.ExternalSetLightID(0, MaximumBrightnes/2);
   }
   else if (clicks == 2) {
     lm.StopAllFade();
-    lm.SetLightID(0, MinimumBrightnes);
+    lm.ExternalSetLightID(0, MinimumBrightnes);
   }
   else if (clicks == 1) {
     //FadeData l1 = lm.CreateFadeData(Up, 3, 0, MaximumBrightnes, MinimumBrightnes);
     //lm.StartFade(l1);
-    lm.SetLightID(0, MaximumBrightnes);
+    lm.ExternalSetLightID(0, MaximumBrightnes);
   }
   if(clicks != 0 && clicks != 1 && clicks != 2)
   {    

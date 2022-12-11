@@ -7,6 +7,10 @@
   #include "WProgram.h"
 #endif 
 
+#define RTOS10M 600000
+#define RTOS1M 60000
+#define RTOS1S 1000
+
 class RTOS
 {
         public:
