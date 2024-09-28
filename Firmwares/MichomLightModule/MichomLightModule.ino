@@ -1,20 +1,14 @@
-//#include <IRremoteESP8266.h>
-//#include <IRsend.h>
 #include <Michom.h>
 #include <GyverButton.h>
 #include <LightModules.h>
 #include <TimerLightModule.h>
-//#include <RC58.h>
-
-//const char *ssid = "10-KORPUSMG";
-//const char *password = "10707707";
 
 char* id = "StudioLight_Main";
 const char* type = "StudioLight";
-double VersionTermometr = 1.75;
+double VersionLightModule = 1.1;
 /////////настройки//////////////
 
-Michome michome(id, type, VersionTermometr);
+Michome michome(id, type, VersionLightModule);
 LightModules lm (&michome);
 TimerLightModule tlm(&lm);
 
@@ -23,42 +17,41 @@ RTOS rtos1(100);
 
 ESP8266WebServer& server1 = michome.GetServer();
 
-//Logger debug = michome.GetLogger();
-
-//const uint16_t kIrLed = 4;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
-//IRsend irsend(kIrLed);  // Set the GPIO to be used to sending the message.
-
-/*int RStructures[] =
-{ 0, 664,
-  1, 734,
-  2, 495,
-  3, 778,
-  4, 21,
-  5, 813
-};
-RKeyboard keyboard(A0, RStructures, 6);*/
-
 GButton butt1(5);
 
 byte clicks = 0;
 
-/*void handleIr() {
-  for (uint8_t i = 0; i < server1.args(); i++) {
-    if (server1.argName(i) == "code") {
-      uint32_t code = strtoul(server1.arg(i).c_str(), NULL, 10);
-      irsend.sendNEC(code, 32);
-      delay(100);
-      server1.send(200, "text/html", String(code));
-    }
-  }
-}*/
-
 CreateMichome;
 
 void setup ( void ) {
-  lm.AddPin({12, PWM});
-  lm.AddPin({13, PWM});
-  lm.AddPin({15, PWM});
+  michome.preInit();
+  //lm.AddPin({12, PWM});
+  //lm.AddPin({13, PWM});
+  //lm.AddPin({15, PWM});
+
+  if(!michome.IsSaveMode){
+    FSFiles paramsPins("lightpins.txt");
+    if(paramsPins.Exist()){ //Если есть данные пинов
+      String vals = paramsPins.ReadFile();
+      for(uint8_t i = 0; i < CountSymbols(vals, '|')+1; i++){
+        String pinData = Split(vals, '|', i);
+        if(pinData != ""){
+          int pin = Split(pinData, '=', 0).toInt();
+          PinType pinT = (PinType)Split(pinData, '=', 1).toInt();
+          lm.AddPin({pin, pinT});
+        }
+      }
+    }
+
+    (michome.GetTelnet()).on("setlpins","changing lightPins data. Pin=Type|. Type: 0-Relay, 1-PWM (setlpins;12=1|13=1|15=1;)", []()
+    {
+      String data = (michome.GetTelnet()).GetData();
+      String value = Split(data, ';', 1);
+      FSFiles pinD("lightpins.txt");
+      pinD.WriteFile(value);
+     (michome.GetTelnet()).printSucess("Success changing lightPins to " + value);
+    });
+  }
   
   //pinMode (A0, INPUT);
   //pinMode (5, 2);
@@ -70,18 +63,10 @@ void setup ( void ) {
   lm.init();
   tlm.init(); //Инициализация подсистемы времени
 
-  //server1.on("/ir", handleIr);
-
-  michome.SetRefreshData([](){michome.SendData();});
-
   michome.init(true);
   if(michome.IsSaveMode) return;  
   michome.TimeoutConnection = LightModuleTimeoutConnection;
-  
-  //irsend.begin();
-  //Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);
-
-  //Serial.println("Init ok");
+ 
 }
 
 void loop ( void ) {
@@ -103,7 +88,7 @@ void loop ( void ) {
   }
 
   if (rtos.IsTick()) {
-    michome.SendData();
+    michome.SendGateway();
   }
 
   /*if (rtos1.IsTick()) {
@@ -150,7 +135,7 @@ void loop ( void ) {
     lm.StartFade(l2);
     lm.StartFade(l3);
   }
-  if(clicks != 0 && clicks != 1 && clicks != 2 && clicks != 3) michome.SendData(michome.ParseJson("get_button_press", "5="+String(clicks)));    
+  if(clicks != 0 && clicks != 1 && clicks != 2 && clicks != 3) michome.SendGateway("get_button_press", "5="+String(clicks));    
 
   yield();
 }

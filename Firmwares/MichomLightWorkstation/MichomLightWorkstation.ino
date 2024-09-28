@@ -21,9 +21,9 @@ ESP8266WebServer& server1 = michome.GetServer(); //Получение объек
 GButton butt1(ButtonPin); //Класс кнопки
 byte clicks = 0; //Количетво нажатий
 
-void setup ( void ) {
-  lm.AddPin({14, PWM}); //Дабавить пин 5 с типом PWM 
-  michome.SetRefreshData([](){michome.SendData();});
+void setup ( void ) { 
+  lm.AddPin({14, PWM}); //Дабавить пин 14 с типом PWM 
+  lm.AddPin({5, PWM}); //Дабавить пин 5 с типом PWM
   
   lm.TelnetEnable = true; //Включена поддержка telnet запросов
   lm.SaveState = true; //Включено сохранение статуса выводов при перезапуске
@@ -32,7 +32,8 @@ void setup ( void ) {
   michome.init(true); //Инициализация модуля Michome
   michome.TimeoutConnection = LightModuleTimeoutConnection; //Таймаут соединения до шлюза
   butt1.setClickTimeout(200);
- 
+
+  Module.addButton(0, ButtonPin, ButtonUDP(michome));
 }
 
 void loop ( void ) {
@@ -57,26 +58,24 @@ void loop ( void ) {
 
   butt1.tick();
 
-  if (butt1.hasClicks()){clicks = butt1.getClicks(); michome.PortPrint("Clicks="+String(clicks), true);}
+  if (butt1.hasClicks()){clicks = butt1.getClicks(); michome.PortPrintln("Clicks="+String(clicks));}
   else clicks = 0;
 
-  if (clicks >= 4) {
-    (michome.GetUDP()).SendTrigger("WorkstationButton", clicks != 5 ? "1" : "0");
-  }
   if (clicks == 3) {
     lm.ExternalSetLightID(0, MaximumBrightnes/2);
   }
   else if (clicks == 2) {
     lm.StopAllFade();
     lm.ExternalSetLightID(0, MinimumBrightnes);
+    michome.GetUDP().SendTrigger((String)michome.GetModule(0)+"_Button", "0");
   }
   else if (clicks == 1) {
-    //FadeData l1 = lm.CreateFadeData(Up, 3, 0, MaximumBrightnes, MinimumBrightnes);
-    //lm.StartFade(l1);
     lm.ExternalSetLightID(0, MaximumBrightnes);
+    michome.GetUDP().SendTrigger((String)michome.GetModule(0)+"_Button", "1");
   }
   if(clicks != 0 && clicks != 1 && clicks != 2)
-  {    
+  {
+    michome.GetUDP().SendTrigger((String)michome.GetModule(0)+"_Button", String(clicks));    
     michome.SendData(michome.ParseJson("get_button_press", String(ButtonPin)+"="+String(clicks)));
   }
 }

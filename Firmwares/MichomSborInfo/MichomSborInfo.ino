@@ -10,7 +10,7 @@
 
 char* id = "sborinfo_tv";
 const char* type = Msinfoo;
-double VersionTermometr = 1.9;
+double VersionTermometr = 1.91;
 /////////настройки//////////////
 
 Michome michome(id, type, VersionTermometr);
@@ -19,6 +19,7 @@ MSInfoo msi(&michome);
 DHT dht(DHTPIN, DHTTYPE, 15);
 Adafruit_BMP085 bmp;
 
+CreateMichome;
 
 void setup() {
 

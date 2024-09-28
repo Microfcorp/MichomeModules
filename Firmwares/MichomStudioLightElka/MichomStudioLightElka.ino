@@ -4,44 +4,33 @@
 #include <TimerLightModule.h>
 #include <MichomUDP.h>
 
-const char* id = "LightStudio_Elka";
+char* id = "LightStudio_Elka";
 const char* type = StudioLight;
+double VersionUploader = 1.42; //Версия ПО модуля
 /////////настройки//////////////
 
-RTOS rtos(604000);
+RTOS rtos(RTOS10M);
 
-Michome michome(id, type);
+Michome michome(id, type, VersionUploader);
 LightModules lm (&michome);
 TimerLightModule tlm(&lm);
 
 ESP8266WebServer& server1 = michome.GetServer();
-MichomeUDP MUDP(&michome);
 
 //const int Keys[] = {9,10,4,5};
 
+CreateMichome;
+
 void setup ( void ) {
-  lm.AddPin({9, Relay});
-  lm.AddPin({10, Relay});
-  lm.AddPin({4, Relay});
-  lm.AddPin({5, PWM});
+  lm.AddPin({4, Relay, true});
+  lm.AddPin({5, Relay, true});
   
   lm.TelnetEnable = true;
   lm.SaveState = true;
   lm.init();
   tlm.init();  
   michome.init(true);
-  michome.TimeoutConnection = LightModuleTimeoutConnection;
-  
-  MUDP.lightModules = &lm;
-  MUDP.timerLightModules = &tlm;
-  MUDP.EAlarm = true;
-  MUDP.init();
-  
-  server1.on("/refresh", [](){ 
-    server1.send(200, "text/html", "OK");
-    michome.SendData();
-  });
-  
+  michome.TimeoutConnection = LightModuleTimeoutConnection;  
 
   /*server1.on("/setlight", []() {
     bool HasChange = false; //можно ли изменить
@@ -65,6 +54,7 @@ void setup ( void ) {
       EEPROM.write(server1.arg(0).toInt(), (server1.arg(1).toInt() == 1 ? 100 : 1));
     }         
   });*/
+  rtos.Stop();
 }
 
 //function AutoChangeTime(){postAjax('/timemodule', GET, '', function(d){timemod.innerHTML = d;}); window.setTimeout('AutoChangeTime()',1000);} 
@@ -72,7 +62,6 @@ void loop ( void ) {
   michome.running();
   lm.running();
   tlm.running();
-  MUDP.running();
 
   if (michome.GetSettingRead()) {
     rtos.ChangeTime(michome.GetSettingToInt("update"));

@@ -5,9 +5,11 @@
 
 #define ButtonPin 12
 
+#pragma message "Не забываем выбирать праввильную платформу"
+
 char* id = "SmartRelay";
 const char* type = StudioLight; //стандартный тип модуля освещения
-double Version = 1.22;
+double Version = 1.27;
 /////////настройки//////////////
 
 RTOS rtos(604000); //время опроса до сервера
@@ -21,9 +23,10 @@ ESP8266WebServer& server1 = michome.GetServer(); //Получение объек
 GButton butt1(ButtonPin); //Класс кнопки
 byte clicks = 0; //Количетво нажатий
 
-void setup ( void ) {
+CreateMichome;
+
+void setup ( void ) {  
   lm.AddPin({14, Relay}); //Дабавить пин 14 с типом Relay 
-  michome.SetRefreshData([&](){michome.SendData();});
   
   lm.TelnetEnable = true; //Включена поддержка telnet запросов
   lm.SaveState = true; //Включено сохранение статуса выводов при перезапуске
@@ -32,7 +35,10 @@ void setup ( void ) {
   michome.init(true); //Инициализация модуля Michome
   michome.TimeoutConnection = LightModuleTimeoutConnection; //Таймаут соединения до шлюза
   butt1.setClickTimeout(200);
- 
+
+  Module.addButton(0, ButtonPin, ButtonUDP(michome));
+
+  rtos.Stop();
 }
 
 void loop ( void ) {
@@ -59,10 +65,12 @@ void loop ( void ) {
   else clicks = 0;
 
   if (clicks > 1) {
-    michome.GetUDP().SendTrigger(michome.GetModule(0)+"Button", String(clicks));
+    michome.GetUDP().SendTrigger(michome.GetModule(0)+"_Button", String(clicks));
     michome.SendData(michome.ParseJson("get_button_press", String(ButtonPin)+"="+String(clicks)));
   }
   else if (clicks == 1) {
-    lm.Reverse(0);
+    lm.ExternalReverse(0);
+    michome.GetUDP().SendTrigger(michome.GetModule(0)+"_Button", String(clicks));
+    michome.GetUDP().SendTrigger(michome.GetModule(0)+"_Button1", String(lm.GetBrightness(0)));
   }
 }

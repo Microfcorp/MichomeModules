@@ -4,7 +4,7 @@
 
 char* id = "RedGarland"; //Стандартный ID модуля
 const char* type = StudioLight; //Тип модуля
-double VersionUploader = 1.1; //Версия ПО модуля
+double VersionUploader = 1.44; //Версия ПО модуля
 /////////настройки//////////////
 
 RTOS rtos(RTOS10M); //Таймер отправки сообщения на шлюз
@@ -12,17 +12,21 @@ Michome michome(id, type, VersionUploader); //Создание модуля Mich
 LightModules lm (&michome); //Создание модуля освещения
 TimerLightModule tlm(&lm); //Создание подсистемы точного времени
 
-ADC_MODE(ADC_VCC);
+CreateMichome;
 
 void setup ( void ) { 
-  lm.AddPin({5, PWM}); //Дабавить пин 9 с типом PWM 
+  michome.preInit();
+  
+  lm.AddPin({5, PWM}); //Дабавить пин 5 с типом PWM 
   
   lm.TelnetEnable = true; //Включена поддержка telnet запросов
-  lm.SaveState = true; //Включено сохранение статуса выводов при перезапуске
+  lm.SaveState = false; //Выключено сохранение статуса выводов при перезапуске
   lm.init(); //Инициализация модуля освещения
   tlm.init(); //Инициализация подсистемы времени
   michome.TimeoutConnection = LightModuleTimeoutConnection; //Таймаут соединения до шлюза
-  michome.init(true); //Инициализация модуля Michome 
+  michome.init(true); //Инициализация модуля Michome  
+
+  rtos.Stop();
 }
 
 void loop ( void ) {
