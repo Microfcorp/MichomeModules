@@ -11,7 +11,9 @@ LightModules::LightModules(Michome *m)
 	(*gtw).SetOptionFirmware(LightModule, true);
 	telnLM = &(*gtw).GetTelnet();
 	udpLM = &(*gtw).GetUDP();
-	InitEffects();
+	#ifdef EffectsON					
+		InitEffects();
+	#endif
 }
 
 void LightModules::AddPin(LightPin Pin){
@@ -19,6 +21,7 @@ void LightModules::AddPin(LightPin Pin){
 	for(uint8_t i = 0; i < NotWorkPinCount; i++){
 		if(Pin.Pin == NWP[i]){
 			(*gtw).AddLogFile("Pin " + (String)Pin.Pin + " is not work for LightModule");
+			(*gtw).AddError(F(__FILE__), F("LightModules::AddPin"), ("Pin " + (String)Pin.Pin + " is not work for LightModule").c_str());
 			return;
 		}
 	}
@@ -28,7 +31,7 @@ void LightModules::AddPin(LightPin Pin){
 String LightModules::GetPins(){
     String tmp = "";
     for(int i = 0; i < Pins.size(); i++){
-        tmp += (String)i + "(" + Pins.get(i).Pin + ") - " + String(Pins.get(i).Type == 0 ? "Relay" : "PWM") + " - " + String(Pins.get(i).value) + "<br />";
+        tmp += (String)i + "(" + Pins.get(i).Pin + ") - " + String(Pins.get(i).Type == 0 ? "Relay" : "PWM") + " - " + String(Pins.get(i).value) + " - " + String(Pins.get(i).Reverse ? "Reverse" : "Normal") + "<br />";
     }
     return tmp;
 }
@@ -37,30 +40,34 @@ String LightModules::GetPins(){
     
 }*/
 
-void LightModules::SetLight(byte pin, PinType type, int brith){
-    if(type == PWM)
-		#if defined(EnableCRT)
-		analogWrite(pin, getBrightCRT(brith));
+void LightModules::SetLight(LightPin &pin, int brith){
+	
+	pin.value = pin.ValidateValue(brith);
+	
+    if(pin.Type == PWM)
+		#if defined(EnableCRT)			
+			analogWrite(pin.Pin, getBrightCRT(pin.ConvertValue(pin.value)));
 		#else
-        analogWrite(pin, brith);
+			analogWrite(pin.Pin, pin.ConvertValue(pin.value));
 		#endif
-    else if (type == Relay)
-        digitalWrite(pin, (brith > 0 ? HIGH : LOW));
-    
-    //
+    else if (pin.Type == Relay)
+        digitalWrite(pin.Pin, (pin.ConvertValue(pin.value) > 0 ? HIGH : LOW));	
+	
+    //Надо допиливать
     if(SaveState){
-        FSFiles pinstext = FSFiles("/lm"+(String)pin+".txt");
-        pinstext.WriteFile((String)pin + "=" + type + "=" + brith);
+        FSFiles pinstext = FSFiles("/lm"+(String)pin.Pin+".txt");
+        pinstext.WriteFile((String)pin.Pin + "=" + pin.Type + "=" + pin.value);
     }
 }
 
 bool LightModules::SetLightID(byte id, int brith){
+	if(brith < 0) return false;
 	LightPin lp = Pins.get(id);
-	if(lp.value == brith) return false;
+	if(lp.value == brith && brith != 0) return false;
 	int prBR = lp.value;
 	
-    SetLight(lp.Pin, lp.Type, brith);	
-	lp.value = brith;
+    SetLight(lp, brith);	
+	
 	Pins.set(id, lp);
 	for(byte i=0; i < PinStateChanged.size(); i++)
 		PinStateChanged.get(i)(id, brith, prBR);
@@ -244,6 +251,10 @@ bool LightModules::AddBuferState(byte pin, int brith){
 }
 
 void LightModules::RunBuffer(){
+	#ifdef EffectsON
+		if(Bufers.size() > 0)
+			StopAllEffect();
+	#endif
     for(int i = 0; i < Bufers.size(); i++){
         BufferData bf = Bufers.get(i); 
         SetLightID(bf.Pin, bf.Brig);
@@ -299,15 +310,26 @@ void LightModules::Load(){
         Scripts.add(qq);
     }
 	
-	rd = efdata.ReadFile();
-    countQ = (*gtw).Split(rd, '|', 0).toInt();
-    data = (*gtw).Split(rd, '|', 1);
-    for(int i = 0; i < countQ; i++){
-		String str = (*gtw).Split(data, '!', i);
-        Effect ef = Effects.get(i);
-		ef.CurState = (*gtw).Split(str, '_', 0) == "1";
-		Effects.set(i, ef);
-    }
+	#ifdef EffectsON
+		rd = efdata.ReadFile();
+		countQ = (*gtw).Split(rd, '|', 0).toInt();
+		data = (*gtw).Split(rd, '|', 1);
+		for(int i = 0; i < countQ; i++){
+			String str = (*gtw).Split(data, '!', i);
+			Effect ef = Effects.get(i);
+			//ef.Enable = (*gtw).Split(str, '@', 0) == "1";
+			ef.Enable = IsStr(str, "1");
+			//String params = (*gtw).Split(str, '@', 1);
+			//int paramsCount = (*gtw).Split(params, ':', 0).toInt();
+			//String paramsData = (*gtw).Split(params, ':', 1);
+			//for(int a = 0; a < paramsCount; a++){
+			//	String parName = (*gtw).Split(paramsData, '=', 0);
+			//	String parValue = (*gtw).Split(paramsData, '=', 1);
+			//	ef = SetEFparam(ef, parName, parValue);
+			//}
+			Effects.set(i, ef);
+		}
+	#endif
 }
 
 void LightModules::Save(){
@@ -319,13 +341,17 @@ void LightModules::Save(){
     }                   
     fstext.WriteFile(sb);
 	
-	countQ = Effects.size();
-    sb = ((String)countQ) + "|";
-    for(byte i = 0; i < countQ; i++){
-        Effect ef = Effects.get(i);
-        sb += (String)(ef.Enable ? "1" : "0") + "!";
-    }                   
-    efdata.WriteFile(sb);
+	#ifdef EffectsON
+		countQ = Effects.size();
+		sb = ((String)countQ) + "|";
+		for(byte i = 0; i < countQ; i++){
+			Effect ef = Effects.get(i);
+			//sb += (String)(ef.Enable ? "1" : "0") + "@" + GenerateSaveParamsEF(i) + "!";
+			//sb += (String)(ef.Enable ? "1" : "0") + "@!";
+			sb += (String)(ef.Enable ? "1" : "0") + "!";
+		}                   
+		efdata.WriteFile(sb);
+	#endif
 }
 
 void LightModules::init(){
@@ -333,14 +359,18 @@ void LightModules::init(){
 	
     bool stops = SaveState;    
     SaveState = false;
-    for(int i = 0; i < Pins.size(); i++){
+    for(uint8_t i = 0; i < Pins.size(); i++){
         pinMode(Pins.get(i).Pin, OUTPUT); 
         SetLightID(i, 0);
     }
 
     if(stops){
-        for(int i = 0; i < Pins.size(); i++){
+        for(uint8_t i = 0; i < Pins.size(); i++){
             FSFiles pinstext = FSFiles("/lm"+(String)Pins.get(i).Pin+".txt");
+			if(!pinstext.Exist()){
+				Serial.println((String)"Pin " + (String)Pins.get(i).Pin + " is none saved value");
+				continue;
+			}
             String rdd = pinstext.ReadFile();
             int typepin = (*gtw).Split(rdd, '=', 1).toInt();
             int br = (*gtw).Split(rdd, '=', 2).toInt();
@@ -429,17 +459,19 @@ void LightModules::init(){
 		RunScript(server1.arg(0).toInt());       
       });
 	  
-	  server1.on("/starteffect", [&]() {
-		server1.send(200, "text/html", "Effect " + server1.arg(0) + " running");
-		delay(5);
-		RunEffect(server1.arg(0).toInt());       
-      });
-	  
-	  server1.on("/stopalleffect", [&]() {
-		server1.send(200, "text/html", F("All Effects Stop"));
-		delay(5);
-		StopAllEffect();       
-      });
+	  #ifdef EffectsON
+		  server1.on("/starteffect", [&]() {
+			server1.send(200, "text/html", "Effect " + server1.arg(0) + " running");
+			delay(5);
+			RunEffect(server1.arg(0).toInt());       
+		  });
+		  
+		  server1.on("/stopalleffect", [&]() {
+			server1.send(200, "text/html", F("All Effects Stop"));
+			delay(5);
+			StopAllEffect();       
+		  });
+	  #endif
 	  
 	  server1.on("/lightscript", [&]() {
 		if(server1.arg("type") == "show" || !server1.hasArg("type")){
@@ -520,7 +552,7 @@ void LightModules::init(){
         server1.sendContent(Styles);
 		
         for(int i = 0; i < Pins.size(); i++){
-            server1.sendContent((String)"<p>" + i + " (" + String(Pins.get(i).Type == 0 ? "Relay" : "PWM") + ") " + String(Pins.get(i).Type == 0 ? "" : (String)"<input type='number' value=\""+(String)GetBrightness(i)+"\" maxlength='4' min='"+MinimumBrightnes+"' max='"+MaximumBrightnes+"' id='pwm"+(String)(i+1)+(String)"' />") + (Pins.get(i).Type == PWM ? (String)"<a href='#' onclick=\"postAjax(\'setlight?p="+i+"&q="+String(Pins.get(i).Type == 0 ? MaximumBrightnes : "'+pwm"+(String)(i+1)+(String)".value+'")+"\', GET, \'\', function(d){}); return false;\">Применить значение</a> " : "") + "<a href='#' onclick=\"postAjax(\'setlight?p="+i+"&q="+MaximumBrightnes+"\', GET, \'\', function(d){}); return false;\">Включить</a> " + "<a href='#' onclick=\"postAjax(\'setlight?p="+i+"&q="+MinimumBrightnes+"\', GET, \'\', function(d){}); return false;\">Выключить</a> "  + "</p>");
+            server1.sendContent((String)"<p class=\"mainlinks\">" + i + " (" + String(Pins.get(i).Type == 0 ? "Relay" : "PWM") + ") " + String(Pins.get(i).Type == 0 ? "" : (String)"<input type='number' value=\""+(String)GetBrightness(i)+"\" maxlength='4' min='"+Pins.get(i).MinBrightnes()+"' max='"+Pins.get(i).MaxBrightnes()+"' id='pwm"+(String)(i+1)+(String)"' />") + (Pins.get(i).Type == PWM ? (String)" <a href='#' onclick=\"postAjax(\'setlight?p="+i+"&q="+String(Pins.get(i).Type == 0 ? Pins.get(i).MaxBrightnes() : "'+pwm"+(String)(i+1)+(String)".value+'")+"\', GET, \'\', function(d){}); return false;\">Применить значение</a> " : "") + "<a href='#' onclick=\"postAjax(\'setlight?p="+i+"&q="+Pins.get(i).MaxBrightnes()+"\', GET, \'\', function(d){document.getElementById('pwm"+(String)(i+1)+(String)"').value = "+Pins.get(i).MaxBrightnes()+";}); return false;\">Включить</a> " + "<a href='#' onclick=\"postAjax(\'setlight?p="+i+"&q="+Pins.get(i).MinBrightnes()+"\', GET, \'\', function(d){document.getElementById('pwm"+(String)(i+1)+(String)"').value = "+Pins.get(i).MinBrightnes()+";}); return false;\">Выключить</a> "  + "</p>");
         }
         server1.sendContent(F("<br /><a href='/'>Главная</a>"));
 		server1.chunkedResponseFinalize();
@@ -541,7 +573,9 @@ void LightModules::init(){
 			server1.sendContent(F("<table>"));			
 			for(int i = 0; i < Effects.size(); i++){
 				Effect ef = Effects.get(i);
-				server1.sendContent((String)"<tr><td>Включен: <input "+(String)(ef.Enable ? "checked" : "")+" onchange='var st = this.checked ? \"on\" : \"off\"; postAjax(\"/effects?type=setstate&id="+(String)i+"&en=\"+st, GET, \"\", function(d){document.location.reload();})' type='checkbox' /></td><td>"+ef.Name+"</td><td>"+ef.Desc+"</td><td>Активен: <input "+(String)(ef.CurState ? "checked" : "")+" type='checkbox' DISABLED /></td><td><input onclick='postAjax(\"/effects?type=startstop&id="+(String)i+"\", GET, \"\", function(d){document.location.reload();})' type='button' value='"+(String)(ef.CurState ? "Остановить" : "Запустить")+"' /></td></tr>");
+				server1.sendContent((String)"<tr><td>Включен: <input "+(String)(ef.Enable ? "checked" : "")+" onchange='var st = this.checked ? \"on\" : \"off\"; postAjax(\"/effects?type=setstate&id="+(String)i+"&en=\"+st, GET, \"\", function(d){document.location.reload();})' type='checkbox' /></td><td>"+ef.Name+"</td><td>"+ef.Desc+"</td><td>Активен: <input "+(String)(ef.CurState ? "checked" : "")+" type='checkbox' DISABLED /></td><td><input onclick='postAjax(\"/effects?type=startstop&id="+(String)i+"\", GET, \"\", function(d){document.location.reload();})' type='button' value='"+(String)(ef.CurState ? "Остановить" : "Запустить")+"' /></td>");
+				//server1.sendContent(GenerateHTMLParamsEF(i));
+				server1.sendContent(F("</tr>"));
 			}
 			server1.sendContent(F("</table><br /><br /><a href='/'>Главная</a>"));
 			server1.chunkedResponseFinalize();
@@ -566,6 +600,17 @@ void LightModules::init(){
             Save();
             server1.send(200, "text/html", (String)"<head><meta charset=\"UTF-8\"><meta http-equiv='refresh' content='1;URL=/effects?type=show' /></head>Эффект "+ids+" сохранен");
 		}
+		/*else if(server1.arg("type") == "setparam"){
+			String name = server1.arg("name");
+			String value = server1.arg("value");
+			byte ids = server1.arg("id").toInt(); 			
+			
+			Effect ef = Effects.get(ids);
+			ef = SetEFparam(ef, name, value);
+			Effects.set(ids, ef);            
+            Save();
+            server1.send(200, "text/html", (String)"<head><meta charset=\"UTF-8\"><meta http-equiv='refresh' content='1;URL=/effects?type=show' /></head>Параметр эффекта "+ids+" сохранен");
+		}*/
 		else if(server1.arg("type") == "startstop"){
 			int ids = server1.arg("id").toInt();
 			for(int i = 0; i < Effects.size(); i++){
@@ -593,10 +638,12 @@ void LightModules::init(){
 	  (*telnLM).on("stroboallpro","{stroboallpro;10;100;50 col;sleep;sleep2}");
 	  (*telnLM).on("fadestart","{fadestart;10;100;50 col;sleep;sleep2}");
 	  (*telnLM).on("fadestop","{fadedown;10;100;50 col;sleep;sleep2}");
-	  (*telnLM).on("stopallfade","{fadestop;}");
+	  (*telnLM).on("stopallfade","{stopallfade;}");
 	  (*telnLM).on("reversepin","{reversepin;0}");
-	  (*telnLM).on("starteffect","{starteffect;0}");
-	  (*telnLM).on("stopalleffect","{stopalleffect;}");
+	  #ifdef EffectsON
+		  (*telnLM).on("starteffect","{starteffect;0}");
+		  (*telnLM).on("stopalleffect","{stopalleffect;}");
+	  #endif
 	  
 	  (*udpLM).on(StudioLight, [&](IPAddress from, String cmd)
 	  {
@@ -634,11 +681,11 @@ void LightModules::TelnetRun(String telndq){
 		telnd.toLowerCase();
 		String type = (*gtw).Split(telnd, ';', 0);
         if (type == "setlight") { //setlight;0;1023 pin;val
-          SetLightID(((*gtw).Split(telnd, ';', 1).toInt()), (*gtw).Split(telnd, ';', 2).toInt());
+          ExternalSetLightID(((*gtw).Split(telnd, ';', 1).toInt()), (*gtw).Split(telnd, ';', 2).toInt());
 		  (*telnLM).printSucess("SetLight OK");
         }
         else if (type == "setlightall") { //setlightall;1023 val
-          SetLightAll((*gtw).Split(telnd, ';', 1).toInt());
+          ExternalSetLightAll((*gtw).Split(telnd, ';', 1).toInt());
 		  (*telnLM).printSucess("SetLightAll OK");
         }
         else if (type == "strobo") { //strobo;2;4;100 pin;col;sleep
@@ -678,18 +725,20 @@ void LightModules::TelnetRun(String telndq){
         }
 		else if (type == "reversepin") { //reversepin;0
 		  int pin = (*gtw).Split(telnd, ';', 1).toInt();
-		  Reverse(pin);
+		  ExternalReverse(pin);
 		  (*telnLM).printSucess("ReversePin OK");
         }
-		else if (type == "starteffect") { //starteffect;0
-		  int pin = (*gtw).Split(telnd, ';', 1).toInt();
-		  RunEffect(pin);
-		  (*telnLM).printSucess("StartEffect OK");
-        }
-		else if (type == "stopalleffect") { //stopalleffect;
-		  StopAllEffect();
-		  (*telnLM).printSucess("stopalleffect OK");
-        }
+		#ifdef EffectsON
+			else if (type == "starteffect") { //starteffect;0
+			  int pin = (*gtw).Split(telnd, ';', 1).toInt();
+			  RunEffect(pin);
+			  (*telnLM).printSucess("StartEffect OK");
+			}
+			else if (type == "stopalleffect") { //stopalleffect;
+			  StopAllEffect();
+			  (*telnLM).printSucess("stopalleffect OK");
+			}
+		#endif
 		else if (type == "printconsole") { //printconsole;aboba
 		  String text = (*gtw).Split(telnd, ';', 1);
 		  (*gtw).PortPrintln(text);
@@ -720,7 +769,7 @@ void LightModules::running(){
 		}
 	}*/
     
-    for(int i = 0; i < countfade; i++){
+    for(int i = 0; i < Fades.size(); i++){
         FadeData fd = GetFade(i);
         
         if(fd.IsRun){
@@ -763,6 +812,7 @@ void LightModules::running(){
 			Effect ef = Effects.get(i);
 			if(ef.CurState){
 				if(ef.Interval == 0){
+					//ef.voids(&Pins, ef.EffectParams);
 					ef.voids(&Pins);
 				}
 				else if(ef.Interval > 0 && !EFTimer.IsRun()){
@@ -771,6 +821,7 @@ void LightModules::running(){
 				}
 				else if(ef.Interval > 0 && EFTimer.IsRun() && EFTimer.IsTick()){
 					ef.voids(&Pins);
+					//ef.voids(&Pins, ef.EffectParams);
 				}
 			}
 		}

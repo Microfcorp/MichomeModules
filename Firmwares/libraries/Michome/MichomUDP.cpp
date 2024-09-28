@@ -17,7 +17,16 @@ void MichomeUDP::init(ESP8266WebServer& server2){
 				server1.send(505, F("text/html"), F("HTTP1.1 required"));
 				return;
 			}
-			server1.sendContent(F("<head><meta charset=\"UTF-8\"><title>Настройка UDP триггеров</title></head>"));
+			server1.sendContent(F("<head><meta charset=\"UTF-8\"><title>Настройка UDP триггеров</title>"));
+			server1.sendContent(JSUDP);
+			//server1.sendContent(Styles);
+			server1.sendContent(F("</head>"));
+			server1.sendContent(F("<p><a href='#' onclick='InvertVisible(document.getElementById(\"eventModule\")); return false;'>События этого модуля</a></p>"));			
+			server1.sendContent(F("<div style='margin: 6px; display: none;' id='eventModule'>"));
+			for(int i = 0; i < Module.buttonsCount(); i++){
+				server1.sendContent("<span><em style='margin-left: 10px;'>"+Module.getButton(i).UDPEvent+"</em></span><br>");
+			}			
+			server1.sendContent(F("</div>"));			
 			server1.sendContent(F("<table>"));			
             for(int i = 0; i < Ut.size(); i++){
                 UDPTriggers tr = Ut.get(i);
@@ -75,7 +84,7 @@ void MichomeUDP::Save(void){
     String sb = ((String)countQ) + "|";
     for(int i = 0; i < countQ; i++){
         UDPTriggers em = Ut.get(i);
-        sb += String(em.Type) + "~" + String(em.ActionType) + "~" + String(em.Data) + "~" + String(em.Enable ? "1" : "0")+ String(em.EventFromMe ? "1" : "0") + "!";
+        sb += String(em.Type) + "~" + String(em.ActionType) + "~" + String(em.Data) + "~" + String(em.Enable ? "1" : "0") + "~" + String(em.EventFromMe ? "1" : "0") + "!";
     }                   
     fstext.WriteFile(sb);
 }
@@ -115,30 +124,7 @@ void MichomeUDP::SendMulticast(String data){
     UDP.endPacket();
 }
 
-String MichomeUDP::Split(String data, char separator, int index)
-{
-  int found = 0;
-  int strIndex[] = {0, -1};
-  int maxIndex = data.length()-1;
 
-  for(int i=0; i<=maxIndex && found<=index; i++){
-    if(data.charAt(i)==separator || i==maxIndex){
-        found++;
-        strIndex[0] = strIndex[1]+1;
-        strIndex[1] = (i == maxIndex) ? i+1 : i;
-    }
-  }
-
-  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
-}
-
-static byte CountSymbols(String& str, char symbol){
-	byte counter = 0;
-	for(int i = 0; i < str.length(); i++){
-		if(str[i] == symbol) counter++;
-	}
-	return counter;
-}
 
 void MichomeUDP::running(){
     int packetLength = UDP.parsePacket();
@@ -170,6 +156,7 @@ void MichomeUDP::running(){
 						byte countParams = CountSymbols(reads, '-');
 						for(byte i = 2, u = 1; i < countParams; i++, u++)
 							EVData.replace((String)"%"+u, Split(reads, '-', i));
+						
 						if(tr.ActionType == (ActionsType)LightData && IsStr(type, StudioLight)){ForSDM(UDP.remoteIP(), EVData);}
 						else if(tr.ActionType == (ActionsType)SendURL){ForURL(UDP.remoteIP(), EVData);}
 						else if(tr.ActionType == (ActionsType)SendGateway){ForGTW(UDP.remoteIP(), EVData);} //"UDPData"

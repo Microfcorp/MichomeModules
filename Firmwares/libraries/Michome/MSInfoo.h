@@ -1,5 +1,5 @@
-#ifndef LightModules_h
-#define LightModules_h
+#ifndef MSInfoo_h
+#define MSInfoo_h
 
 #if defined(ARDUINO) && ARDUINO >= 100
   #include "Arduino.h"
@@ -10,7 +10,7 @@
 #define TermometrsTimeoutConnection 3000
 
 #define TermometersValue float
-#define HummValue int
+#define HummValue float
 #define AltValue float
 #define PressureValue float
 #define TermometersTypeValue String
@@ -42,7 +42,7 @@ class MSInfoo
 				void init();
 				void running();
 				void ChangeTime(int time);
-				void SendData();
+				void SendGateway();
 				
 				void SetMSInfooHandler(GTHandlerFunction th){_getTemp = th;}
 				void SetMSInfooInfoHandler(GTTHandlerFunction th){_getTermomersInfo = th;}
@@ -72,10 +72,11 @@ class MSInfoo
             BTHandlerFunction _initTemp;
 			Michome *gtw;
 			Telnet *telnLM;
+			uint8_t countTermometrs = 0;
 			
 			RTOS rtos = RTOS(600000);
 			
 			void TelnetRun(String telnd);
             
 };
-#endif // #ifndef LightModules_h
+#endif // #ifndef MSInfoo_h

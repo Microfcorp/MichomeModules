@@ -4,20 +4,26 @@
 
 #include <Udp.h>
 #include <RTOS.h>
+#include <time.h>                       // time() ctime()
+#include <TZ.h>                       // time() ctime()
+#include <sys/time.h>                   // struct timeval
+#include <LinkedList.h>
 
 #define SEVENZYYEARS 2208988800UL
 #define NTP_PACKET_SIZE 48
 #define NTP_DEFAULT_LOCAL_PORT 1337
 #define LEAP_YEAR(Y)     ( (Y>0) && !(Y%4) && ( (Y%100) || !(Y%400) ) )
 
+typedef std::function<void(time_t unixTime)> TimeHandlerFunction;
+
 typedef struct DateTime //Текущее дата и время
 {
-    byte Hour; 
-    byte Minutes; 
-	byte Seconds; 
-	byte Day; 
-    byte Mounth; 
-    byte Year; 
+    uint8_t Hour; 
+    uint8_t Minutes; 
+	uint8_t Seconds; 
+	uint8_t Day; 
+    uint8_t Mounth; 
+    int Year; 
 	
 	int ToMinutes(){
 		return (Hour*60) + Minutes;
@@ -48,7 +54,7 @@ class NTPClient {
     unsigned long _currentEpoc    = 0;      // In s
     unsigned long _lastUpdate     = 0;      // In ms
 
-    byte          _packetBuffer[NTP_PACKET_SIZE];
+    uint8_t       _packetBuffer[NTP_PACKET_SIZE];
 
     void          sendNTPPacket();
 	
@@ -56,6 +62,8 @@ class NTPClient {
 	DateTime 	  cDT;
 	//OnlyTime 	  cT;
 	void		  updateDT();
+	bool		  _IsSync = false;
+	LinkedList<TimeHandlerFunction> _FirstSync = LinkedList<TimeHandlerFunction>();
 
   public:
     NTPClient(UDP& udp);
@@ -88,6 +96,10 @@ class NTPClient {
      * @return true on success, false on failure
      */
     bool update();
+	
+	bool isSync(){
+		return _IsSync;
+	}
 
     /**
      * This will force the update from the NTP Server.
@@ -109,6 +121,9 @@ class NTPClient {
      */
     void setTimeOffset(int timeOffset);
 
+	int getTimeOffset(){
+		return _timeOffset;
+	}
     /**
      * Set the update interval to another frequency. E.g. useful when the
      * timeOffset should not be set in the constructor
@@ -137,10 +152,16 @@ class NTPClient {
      */
     unsigned long getEpochTime() const;
 	
+	void setEpochTime(unsigned long time){
+		_currentEpoc = time - _timeOffset;
+	};
+	
 	DateTime getDateTime() const;
 
     /**
      * Stops the underlying UDP client
      */
     void end();
+	
+	void OnFirstSyncTime(TimeHandlerFunction action){_FirstSync.add(action);};
 };

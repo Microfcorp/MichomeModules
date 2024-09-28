@@ -2,7 +2,11 @@
 #define MichomUDP_h
 
 #define IsStr(str, str2) ((str.indexOf(str2) != -1))
+#define JSUDP F("<script>function InvertVisible(blockS){blockS.style.display = (blockS.style.display == 'none' ? 'block' : 'none');}</script>")
 
+#define MICHOMEUDPPORT 4210
+
+#include "config.h"
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
@@ -12,6 +16,7 @@
 #include <RTOS.h>
 #include <FSFiles.h>
 #include <ModuleTypes.h>
+#include <Module.h>
 
 typedef enum ActionsType {LightData, SendURL, SendGateway, SendsUDP, TimerData, LightScripts};
 
@@ -57,8 +62,6 @@ class MichomeUDP
 			void on(String name, UDPTHandlerFunction func){
 				Udata.add({name, func});
 			}
-			
-            String Split(String data, char separator, int index);
             
             String GetData_Discover(){
                 return "Michome_" + WiFi.localIP().toString();
@@ -113,7 +116,7 @@ class MichomeUDP
 			void EventLightScript(UDPTHandlerFunction action){ForLSC = action;};
         private:
             WiFiUDP UDP;
-            unsigned int localUdpPort = 4210;
+            unsigned int localUdpPort = MICHOMEUDPPORT;
             unsigned int MulticastUdpPort = 4244;
             char incomingPacket[255];
             char replyPacekt[30];

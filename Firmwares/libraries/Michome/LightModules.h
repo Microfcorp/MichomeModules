@@ -7,22 +7,32 @@
   #include "WProgram.h"
 #endif 
 
+#include <Michom.h>
+#include <LinkedList.h>
+//#include <ArduinoJson.h>
+
 #define LightModuleTimeoutConnection 500
 #define EnableCRT
 #define EffectsON
 
 #ifdef EffectsON
-	#define CreateEffect(name, desc, interval, mt) (Effects.add({true, name, desc, interval, mt, false}))
+	#define MaxEFParams 5
+	//#define CreateEffect(name, desc, interval, mt, param1, param2, param3, param4, param5) (Effects.add((Effect){true, name, desc, interval, mt, false, param1, param2, param3, param4, param5}))
+	#define CreateEffect(name, desc, interval, mt) (Effects.add((Effect){true, name, desc, interval, mt, false}))
 	#define ForEveryPin() for(byte pinID = 0; pinID < (*Pins).size(); pinID++)
-	#define SetEveryPin(val) for(byte pinID = 0; pinID < (*Pins).size(); pinID++) {analogWrite((*Pins).get(pinID).Pin, val); LightPin lp = (*Pins).get(pinID); lp.value = val; (*Pins).set(pinID, lp);}
+	#define GetPinMaxBrigth(pinID) (*Pins).get(pinID).MaxBrightnes();
+	#define GetPinMinBrigth(pinID) (*Pins).get(pinID).MinBrightnes();
+	//#define SetEveryPin(val, PinType) for(byte pinID = 0; pinID < (*Pins).size(); pinID++) {if((*Pins).get(pinID).Pin == PinType) { analogWrite((*Pins).get(pinID).Pin, val); LightPin lp = (*Pins).get(pinID); lp.value = val; (*Pins).set(pinID, lp); }}
+	#define SetEveryPin(val) for(byte pinID = 0; pinID < (*Pins).size(); pinID++) { if((*Pins).get(pinID).Type == PWM) { analogWrite((*Pins).get(pinID).Pin, (*Pins).get(pinID).ConvertValue(val)); LightPin lp = (*Pins).get(pinID); lp.value = val; (*Pins).set(pinID, lp); } }
 #endif
 
-#define NotWorkPin 0, 2, 9, 10
-#define NotWorkPinCount 4
-
-#include <Michom.h>
-#include <LinkedList.h>
-//#include <ArduinoJson.h>
+#if defined(EnableExternalUnits)
+	#define NotWorkPin 0, 1, 2, 9, 16, 5, 4
+	#define NotWorkPinCount 7
+#else
+	#define NotWorkPin 0, 1, 2, 9, 16
+	#define NotWorkPinCount 5
+#endif
 
 #define MaximumBrightnes 1023
 #define MinimumBrightnes 0
@@ -34,7 +44,7 @@ typedef struct LightData
 {
     LightType Type; //тип по таблицк
     int BR; //яркость
-    byte Pin; //пин
+    uint8_t Pin; //пин
     int Col; //количетво
     int Del; //задержка
     int PDel; //про-задержка
@@ -55,9 +65,39 @@ typedef struct FadeData
 
 typedef struct LightPin
 {	
-    byte Pin; //пин
+    uint8_t Pin; //пин
     PinType Type; //тип пина
+	bool Reverse; //Реверс пина
 	int value; //значение яркости
+	
+	int MaxBrightnes() const&{
+		return (Type == PWM ? MaximumBrightnes : 1);
+	}
+	int MinBrightnes() const&{
+		return MinimumBrightnes;
+	}
+	int ConvertValue(int val) const&{
+		if(Type == Relay)
+			return (val > 0 ? (Reverse ? LOW : HIGH) : (Reverse ? HIGH : LOW));
+		else if(Type == PWM){
+			val = min(val, MaxBrightnes());
+			val = max(val, MinBrightnes());
+			return (Reverse ? map(val, MinBrightnes(), MaxBrightnes(), MaxBrightnes(), MinBrightnes()) : val);
+		}
+		else
+			return val;
+	}
+	int ValidateValue(int val) const&{
+		if(Type == Relay)
+			return (val > 0 ? HIGH : LOW);
+		else if(Type == PWM){
+			val = min(val, MaxBrightnes());
+			val = max(val, MinBrightnes());
+			return val;
+		}
+		else
+			return val;
+	}
 };
 
 typedef struct BufferData
@@ -73,7 +113,7 @@ typedef struct LightScript
     String Script; //Сам скрипт
 };
 
-
+//typedef std::function<void(LinkedList<LightPin> *Pins, ModuleParam *EFParams)> EffectHandlerFunction;
 typedef std::function<void(LinkedList<LightPin> *Pins)> EffectHandlerFunction;
 typedef struct Effect
 {
@@ -83,6 +123,7 @@ typedef struct Effect
 	int Interval; //Интервал выполнения
 	EffectHandlerFunction voids; //Метод
 	bool CurState; //Выполняется ли сейчас
+	//ModuleParam Params[MaxEFParams]; //Параметры эффектов модуля
 };
 
 typedef std::function<void(uint8_t pinID, int State, int PreviewState)> PinStateHandlerFunction;
@@ -91,7 +132,8 @@ typedef std::function<void(uint8_t pinID, int State, int PreviewState)> PinState
 // функция возвращает скорректированное по CRT значение
 // для 10 бит ШИМ
 static int getBrightCRT(int val) {
-  return ((long)val * val * val + 2094081) >> 20;
+	if(val < 30) return 0;
+	return ((long)val * val + 1023) >> 10;
 }
 #endif
 
@@ -106,12 +148,14 @@ class LightModules
                 //
                 //void RunData(LightData LD);
                 //Установить яркость пина
-                void SetLight(byte pin, PinType type, int brith);
+                void SetLight(LightPin &pin, int brith);
                 //Установить яркость по ID
                 bool SetLightID(byte pin, int brith);
 				//Установить яркость по ID и вызов событий изменения из вне
                 bool ExternalSetLightID(uint8_t pinID, int brith){
-					StopAllEffect();
+					#ifdef EffectsON
+						StopAllEffect();
+					#endif
 					int PrSt = GetBrightness(pinID);
 					if(!SetLightID(pinID, brith)) return false;
 					for(byte i=0; i < ExternalPinStateChanged.size(); i++)
@@ -122,7 +166,9 @@ class LightModules
                 bool SetLightAll(int brith);
 				//Установить яркость всех и вызов событий изменения из вне
                 bool ExternalSetLightAll(int brith){
-					StopAllEffect();
+					#ifdef EffectsON
+						StopAllEffect();
+					#endif
 					int brs[Pins.size()];
 					for(int a = 0; a < Pins.size(); a++)        
 						brs[a] = GetBrightness(a);
@@ -164,6 +210,10 @@ class LightModules
                 bool AddBuferState(byte pin, int brith);
                 //Применить буфер
                 void RunBuffer();
+				//Возвращает, есть ли доступные данные в буфере
+				bool IsBufferAvaliable(){
+					return Bufers.size() > 0;
+				}
 				//Получить текущую яркость пина
                 int GetBrightness(byte pinid);
 				//Выполнить скрипт освещения
@@ -172,13 +222,14 @@ class LightModules
 				byte GetCountScripts(){return Scripts.size();};
 				LightScript GetLightScript(byte id){return Scripts.get(id);};				
 				#ifdef EffectsON
-				//Выполнить эффект
-				void RunEffect(byte effectID);
-				//Остановить все эффекты
-				void StopAllEffect();
-				//Возвращает число эффектов
-				byte GetCountEffects(){return Effects.size();};
-				Effect GetEffects(byte id){return Effects.get(id);};
+					//Выполнить эффект
+					void RunEffect(byte effectID);
+					//Остановить все эффекты
+					void StopAllEffect();
+					//Возвращает число эффектов
+					byte GetCountEffects(){return Effects.size();};
+					Effect GetEffects(byte id){return Effects.get(id);};
+					void InitEffects(); //Инициализация эффектов
 				#endif
                 //Возвращает количетво пинов
                 int CountPins(){
@@ -189,8 +240,11 @@ class LightModules
                     return Pins.get(id);
                 }
                 //Создать структуру плавного изменения яркости
-                FadeData CreateFadeData(FadeType type, int Interval, int Pin, int MaxV, int MinV){
-                  return {type, Interval, 0, Pin, min(MaxV, MaximumBrightnes), min(MinV, MinimumBrightnes), min(MinV, MinimumBrightnes), true};  
+                FadeData CreateFadeData(FadeType type, int Interval, int Pin, int MaxV, int MinV, bool ResetCerrent = true){
+                  return {type, Interval, 0, Pin, min(MaxV, GetPin(Pin).MaxBrightnes()), min(MinV, GetPin(Pin).MinBrightnes()), (ResetCerrent ? (type == Down ? min(MaxV, GetPin(Pin).MaxBrightnes()) : min(MinV, GetPin(Pin).MinBrightnes())) : GetBrightness(Pin)), true};  
+                };
+				FadeData CreateFadeData(FadeType type, int Interval, int Pin, bool ResetCerrent = true){
+                  return {type, Interval, 0, Pin, GetPin(Pin).MaxBrightnes(), GetPin(Pin).MinBrightnes(), (ResetCerrent ? (type == Down ? GetPin(Pin).MaxBrightnes() : GetPin(Pin).MinBrightnes()) : GetBrightness(Pin)), true};  
                 };
                 //
                 //String JSONParse(String text);
@@ -215,9 +269,6 @@ class LightModules
 				//Возникает при изменении состоянии выхода
 				void OnPinChange(PinStateHandlerFunction action){PinStateChanged.add(action);};
 				void OnExtPinChange(PinStateHandlerFunction action){ExternalPinStateChanged.add(action);};
-				#ifdef EffectsON
-				void InitEffects(); //Инициализация эффектов
-				#endif
         private:
             bool IsReadConfig = false;
             //LinkedList<LightData> Datas = LinkedList<LightData>();
@@ -246,7 +297,42 @@ class LightModules
 			void Load();
 			void Save();
 			LinkedList<PinStateHandlerFunction> PinStateChanged = LinkedList<PinStateHandlerFunction>();
-			LinkedList<PinStateHandlerFunction> ExternalPinStateChanged = LinkedList<PinStateHandlerFunction>();			
+			LinkedList<PinStateHandlerFunction> ExternalPinStateChanged = LinkedList<PinStateHandlerFunction>();
+			/*void CreateEffect(String name, String desc, int interval, EffectHandlerFunction mt, ModuleParam param1 = {"",""}, ModuleParam param2 = {"",""}, ModuleParam param3 = {"",""}, ModuleParam param4 = {"",""}, ModuleParam param5 = {"",""}) 
+			{
+				Effects.add((Effect){true, name, desc, interval, mt, false, param1, param2, param3, param4, param5});
+			}*/
+			/*#ifdef EffectsON
+			String GenerateHTMLParamsEF(byte EFid){
+				Effect ef = Effects.get(EFid);
+				String tmp = "";
+				//for(byte i = 0; i < MaxEFParams; i++){
+				//	ModuleParam par = (*ef.EffectParams).get(i);
+				//	tmp += "<td>"+par.Name+": <input type='text' value='"+par.Value+"' onchange='postAjax(\"/effects?id="+(String)EFid+"&type=setparam&name="+par.Name+"&value=\"+this.value, GET, \"\", function(d){document.location.reload();})'' /></td>";
+				//}
+				return tmp;
+			}
+			String GenerateSaveParamsEF(byte EFid){
+				//Effect ef = Effects.get(EFid);
+				//String tmp = (String)((*ef.EffectParams).size()) + ":";
+				//for(byte i = 0; i < (*ef.EffectParams).size(); i++){
+				//	ModuleParam par = (*ef.EffectParams).get(i);
+				//	tmp += par.Name+(String)"="+par.Value;
+				//}
+				return "";
+			}
+			Effect SetEFparam(Effect ef, String name, String value){
+				//for(byte i = 0; i < (*ef.EffectParams).size(); i++){
+				//	ModuleParam par = (*ef.EffectParams).get(i);
+				//	if(par.Name == name){						
+				//		par.Value = value;
+				//		(*ef.EffectParams).set(i, par);
+				//		break;
+				//	}
+				//}
+				return ef;
+			}
+			#endif*/
 			//RTOS SaveStateUpdate = RTOS(3000);//На сохранение
             
 };

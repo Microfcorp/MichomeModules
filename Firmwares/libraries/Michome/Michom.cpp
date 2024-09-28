@@ -34,7 +34,6 @@ Michome::Michome(const char* _ssid, const char* _password, char* _id, const char
 	udpmodule = MichomeUDP(id, type);
 }
 
-#ifndef NoFS
 //
 // конструктор - вызывается всегда при создании экземпляра класса Michome
 //
@@ -54,7 +53,6 @@ Michome::Michome(char* _id, const char* _type, const double FirmwareVersion)
 	SetOptionFirmware(UDPTrigger, true);
 	udpmodule = MichomeUDP(id, type);
 }
-#endif
 
 ESP8266WebServer& Michome::GetServer(){
     return server;
@@ -68,20 +66,26 @@ MichomeUDP& Michome::GetUDP(){
     return udpmodule;
 }
 
+#ifdef EnableExternalUnits
+	ExternalUnits& Michome::GetExternalUnits(){
+		return exUnit;
+	}
+#endif
+
 //
 // Инициализация в Setup
 //
-void Michome::init(bool senddata)
+void Michome::init(bool sendGateway)
 {
       _init();     
       
       int t1 = TimeoutConnection;
       TimeoutConnection = 1500;
-      SendData(ParseJson(Initialization, ""));
+      SendGateway(Initialization, "ok");
       TimeoutConnection = t1;
       
-      if(senddata){
-        SendData();
+      if(sendGateway){
+        SendGateway();
       }
 }
 //
@@ -103,8 +107,8 @@ void Michome::preInit(void)
 		#endif 
 	
 		#ifndef NoFS
-			if (!LittleFS.begin()) {
-				Serial.println("LittleFS mount failed");
+			if (!SFS.begin()) {
+				Serial.println(F("FS mount failed. Formating..."));
 			}
 			if(IsNeedReadConfig){
 				MainConfig = ReadWIFIConfig();
@@ -133,30 +137,42 @@ void Michome::_init(void)
 	preInit();
 	
 	#if defined(DebugConnection)
-	    Serial.println("----------Module core is starting----------");
+	    Serial.println(F("----------Module core is starting----------"));
     #endif				
 	
     #ifndef NoFS
-        AddLogFile("Start CPU OK", false);
+        AddLogFile(F("Start ESP OK"), false);
 		if(IsSaveMode){
-			AddLogFile("Safe Mode Enable", false);
-			Serial.println("Run on Safe Mode");
+			AddLogFile(F("Safe Mode Enable"), false);
+			Serial.println(F("Run on Safe Mode"));
 		}
     #endif  
       
-      Serial.println("");      
+	Serial.println();
+
+	#ifdef EnableExternalUnits
+		exUnit.init();
+		#ifdef EnableDS3231
+		if(exUnit.isDS3231()){
+			DS3231& ds32 = exUnit.GetDS3231();
+			timeClient.setEpochTime(ds32.UNIXTime());
+			AddLogFile(F("Load time from DS3231"), true);
+		}
+		#endif
+	#endif
       
-      ArduinoOTA.setHostname(id);     
+	  #if defined(FlashOTA)
+      ArduinoOTA.setHostname(GetModule(0).c_str());     
       ArduinoOTA.onStart([&]() {
-        Serial.println("Start");
+        Serial.println(F("Start"));
         #ifndef NoFS
-            AddLogFile("Update OTA Start", false);
+            AddLogFile(F("Update OTA Start"), false);
         #endif
       });     
       ArduinoOTA.onEnd([&]() {
-        Serial.println("\nEnd");
+        Serial.println(F("\nEnd"));
         #ifndef NoFS
-            AddLogFile("Update OTA Success", false);
+            AddLogFile(F("Update OTA Success"), false);
         #endif
       });
       ArduinoOTA.onProgress([&](unsigned int progress, unsigned int total) {
@@ -168,37 +184,40 @@ void Michome::_init(void)
       ArduinoOTA.onError([&](ota_error_t error) {
         Serial.printf("Error[%u]: ", error);
         if (error == OTA_AUTH_ERROR) {
-          Serial.println("Auth Failed");
+          Serial.println(F("Auth Failed"));
           #ifndef NoFS
-              AddLogFile("Error OTA Auth Failed", false);
+              AddLogFile(F("Error OTA Auth Failed"), false);
           #endif
         } else if (error == OTA_BEGIN_ERROR) {
-          Serial.println("Begin Failed");
+          Serial.println(F("Begin Failed"));
           #ifndef NoFS
-              AddLogFile("Error OTA Begin Failed", false);
+              AddLogFile(F("Error OTA Begin Failed"), false);
           #endif
         } else if (error == OTA_CONNECT_ERROR) {
-          Serial.println("Connect Failed");
+          Serial.println(F("Connect Failed"));
           #ifndef NoFS
-              AddLogFile("Error OTA Connect Failed", false);
+              AddLogFile(F("Error OTA Connect Failed"), false);
           #endif
         } else if (error == OTA_RECEIVE_ERROR) {
-          Serial.println("Receive Failed");
+          Serial.println(F("Receive Failed"));
           #ifndef NoFS
-              AddLogFile("Error OTA Recive Failed", false);
+              AddLogFile(F("Error OTA Recive Failed"), false);
           #endif
         } else if (error == OTA_END_ERROR) {
-          Serial.println("End Failed");
+          Serial.println(F("End Failed"));
           #ifndef NoFS
-              AddLogFile("Error OTA End Failed", false);
+              AddLogFile(F("Error OTA End Failed"), false);
           #endif
         }
       });
-      ArduinoOTA.begin();  
+      ArduinoOTA.begin(false);
+	  #else
+		  Serial.println(F("OTA is disable this firmware"));
+      #endif	  
       
 	  #if defined(DebugConnection)
-        Serial.println("----------Module core is loading----------");
-        Serial.println("----------Module Connection is starting----------");
+        Serial.println(F("----------Module core is full loading----------"));
+        Serial.println(F("----------Module michome is starting----------"));
       #endif
 	  
       if(IsNeedReadConfig){                                        
@@ -206,7 +225,7 @@ void Michome::_init(void)
 		    Serial.println("Setting readed from " + (String)CountWIFI + " points");
 		    for(int i = 0; i < CountWIFI; i++){
 				if(MainConfig.WIFI[i].SSID[0] != '\0')
-					Serial.println("Point "+(String)i+". SSID: "+(String)MainConfig.WIFI[i].SSID +" Password: "+(String)MainConfig.WIFI[i].Password);
+					Serial.println("Point "+(String)i+". SSID: "+(String)MainConfig.WIFI[i].SSID +" Password: ***"/*+(String)MainConfig.WIFI[i].Password*/);
 				else
 					Serial.println("None Point "+(String)i);
 			}
@@ -215,12 +234,12 @@ void Michome::_init(void)
       
       #if defined(UsingFastStart)
 		#if defined(DebugConnection)
-			Serial.println("Fast Start is enable");
+			Serial.println(F("Fast Start is enable"));
 		#endif
 		if(!IsFoundSSID(WiFi.SSID())){
 			WiFi.disconnect(true);
 			#if defined(DebugConnection)
-				Serial.println("Disconected from Fast Start");
+				Serial.println(F("Disconected from Fast Start"));
 			#endif
 		}
 		
@@ -232,11 +251,11 @@ void Michome::_init(void)
         WiFi.disconnect(true);     
 		ChangeWiFiMode();
 		#if defined(DebugConnection)
-			Serial.println("Fast Start is disable");
+			Serial.println(F("Fast Start is disable"));
 		#endif
       #endif
 
-      WiFi.hostname(id);
+      WiFi.hostname(GetModule(0).c_str());
       
 	  for(int i = 0; i < CountWIFI; i++){
 		  if(MainConfig.WIFI[i].SSID[0] != '\0'){
@@ -251,7 +270,7 @@ void Michome::_init(void)
 	  #else		
 		  if(IsConfigured){
 			  #if defined(DebugConnection)
-				Serial.println("Connect to WIFI, please waiting...");
+				Serial.println(F("Connect to WIFI, please waiting..."));
 			  #endif
 	  
 			  long wifi_try = millis();      
@@ -264,18 +283,16 @@ void Michome::_init(void)
 				if (millis() - wifi_try > WaitConnectWIFI) break;
 			  }
 			  #if defined(DebugConnection)
-				Serial.println("");
+				Serial.println();
 			  #endif
 		  }	  
       
 		  if(wifiMulti.run() != WL_CONNECTED || !IsConfigured){
 			  #ifndef NoFS
-				AddLogFile("Error Connecting to all - WIFI", false);
-				AddLogFile("Starting AP", false);
+				AddLogFile(F("Error Connecting to all - WIFI"), false);
 			  #endif
 			  #if defined(DebugConnection)
-				Serial.println("Error Connecting to all - WIFI");
-				Serial.println("Starting AP");
+				Serial.println(F("Error Connecting to all - WIFI"));
 			  #endif			  
 			  StrobeBuildLedError(8, LOW);
 			  CreateAP();
@@ -290,38 +307,41 @@ void Michome::_init(void)
       #endif
 	  
       #if defined(DebugConnection)
-        Serial.println("----------Module Connection is finished----------");
+        Serial.println(F("----------Module Connection is finished----------"));
       #endif
       
-      String locals = (String)id;
-      locals.replace('_', '-');
+      String locals = GetModule(0);
+      //locals.replace('_', 'q');
       locals.toLowerCase();
-      char mdsnname[locals.length()];
-      (locals).toCharArray(mdsnname, locals.length());
-      if ( mdns.begin ( mdsnname, WiFi.localIP() ) ) {
+      if (mdns.begin(locals.c_str(), WiFi.localIP()))
+	  {
         #if defined(DebugConnection)
-            Serial.println("MDNS Starting");
+            Serial.println(F("MDNS Starting"));
         #endif
         mdns.addService("http", "tcp", 80);
-        mdns.addService("telnet", "tcp", 23);
+        mdns.addService("telnet", "tcp", STANDARTTELNETPORT);
+        mdns.addService("michomeudp", "udp", MICHOMEUDPPORT);
+		#ifdef FlashOTA
+			mdns.enableArduino(8266);
+		#endif
       }
 	  else{
 		#if defined(DebugConnection)
-            Serial.println("MDNS Start error");
+            Serial.println(F("MDNS Start error"));
         #endif  
 	  }
-      LLMNR.begin(mdsnname);
+      LLMNR.begin(locals.c_str());
 
-	  server.on("/updatemanager", HTTP_GET, [this](){
-          const char* serverIndex = "Please, select *.bin file firmware: <form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>";
-          server.sendHeader("Connection", "close");
-          server.sendHeader("Access-Control-Allow-Origin", "*");
-          server.send(200, "text/html", serverIndex);
+	  #if defined(FlashWEB)
+	  server.on(F("/updatemanager"), HTTP_GET, [this](){
+          server.sendHeader(F("Connection"), "close");
+          server.sendHeader(F("Access-Control-Allow-Origin"), "*");
+          server.send(200, F("text/html"), F("Please, select *.bin file firmware: <form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>"));
         });
-      server.on("/update", HTTP_POST, [this](){
-          server.sendHeader("Connection", "close");
-          server.sendHeader("Access-Control-Allow-Origin", "*");
-          server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK");
+      server.on(F("/update"), HTTP_POST, [this](){
+          server.sendHeader(F("Connection"), "close");
+          server.sendHeader(F("Access-Control-Allow-Origin"), "*");
+          server.send(200, F("text/plain"), (Update.hasError())?"FAIL":"OK");
 		  AddLogFile((Update.hasError())?"HTTP Update Fail":"HTTP Update OK");
           ESP.restart();
         },[this](){
@@ -330,56 +350,70 @@ void Michome::_init(void)
             Serial.setDebugOutput(true);
             WiFiUDP::stopAll();
             Serial.printf("Update: %s\n", upload.filename.c_str());
-			AddLogFile("HTTP Update Start");
+			AddLogFile(F("HTTP Update Start"));
             uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
             if(!Update.begin(maxSketchSpace)){//start with max available size
-			  AddLogFile("HTTP Update Fail");
+			  AddLogFile(F("HTTP Update Fail"));
               Update.printError(Serial);
             }
           } else if(upload.status == UPLOAD_FILE_WRITE){
             if(Update.write(upload.buf, upload.currentSize) != upload.currentSize){
-			  AddLogFile("HTTP Update Fail");
+			  AddLogFile(F("HTTP Update Fail"));
               Update.printError(Serial);
             }
           } else if(upload.status == UPLOAD_FILE_END){
             if(Update.end(true)){ //true to set the size to the current progress
               Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
             } else {
-		      AddLogFile("HTTP Update Fail");
+		      AddLogFile(F("HTTP Update Fail"));
               Update.printError(Serial);
             }
             Serial.setDebugOutput(false);
           }
           yield();
         });
+	  #else
+		  Serial.println(F("HTTP Update is disable this firmware"));
+	  #endif
 	  
 	  
-      server.on("/", [this](){
+      server.on(F("/"), [this](){
 		  if(!IsSaveMode)
 		  {
-		   #if !defined(NoFs)
 			if(!IsConfigured){
 				GetConfigerator();
 			}
 			else{ 
 				GetMainWeb();	
 			}                        	   
-		   #else
-			GetMainWeb();
-		   #endif
 		  }
 		  else{
-			server.send(200, "text/html", "Module is Safe Mode. Please reboot module or update firmware on /updatemanager");  
+			#if defined(FlashWEB) && defined(FlashOTA)
+				server.send(200, F("text/html"), F("Module is Safe Mode (<a href='/getlogs'>check log</a>). Please <a href='/restart'>/restart</a> module or update firmware on OTA or <a href='/updatemanager'>/updatemanager</a>"));  
+			#elif defined(FlashOTA)
+				server.send(200, F("text/html"), F("Module is Safe Mode (<a href='/getlogs'>check log</a>). Please <a href='/restart'>/restart</a> module or update firmware on OTA</a>"));
+			#elif defined(FlashWEB)
+				server.send(200, F("text/html"), F("Module is Safe Mode (<a href='/getlogs'>check log</a>). Please <a href='/restart'>/restart</a> module or update firmware on <a href='/updatemanager'>/updatemanager</a>"));	
+			#else
+				server.send(200, F("text/html"), F("Module is Safe Mode (<a href='/getlogs'>check log</a>). Please <a href='/restart'>/restart</a> module and connecting UART"));	
+			#endif
 		  }
       });
 	  
-	  server.on("/restart", [this](){ 
-        server.send(200, "text/html", "OK");
-        #ifndef NoFs
-			AddLogFile("Restart from WEB");
-        #endif
+	  server.on(F("/restart"), [this](){ 
+        server.send(200, F("text/html"), F("OK"));
+		AddLogFile(F("Restart from WEB"));
         ESP.reset();
-      });  
+      }); 
+
+	  server.on(F("/getlogs"), [this](){ 
+		FSLoger.ReadLogFileToServer(&server);
+      });	
+
+	  server.on(F("/clearlogs"), [this](){
+        FSLoger.ClearLogFile();
+        server.send(200, F("text/html"), RussianHead(F("Отчистка логов.."), MetaRefresh()) + "OK");    
+      });	  
 	  
 	  if(IsSaveMode)
 	  {
@@ -387,32 +421,32 @@ void Michome::_init(void)
 		  return;
 	  }
       
-      server.on("/generate_204", [this](){  //Android captive portal. Maybe not needed. Might be handled by notFound handler.  
+      server.on(F("/generate_204"), [this](){  //Android captive portal. Maybe not needed. Might be handled by notFound handler.  
 		#if defined(DebugConnection)
-            Serial.println("Android Captive-portal request");
+            Serial.println(F("Android Captive-portal request"));
         #endif
 		GetMainWeb();
       });
-      server.on("/fwlink", [this](){  //Microsoft captive portal. Maybe not needed. Might be handled by notFound handler.   
+      server.on(F("/fwlink"), [this](){  //Microsoft captive portal. Maybe not needed. Might be handled by notFound handler.   
 		#if defined(DebugConnection)
-            Serial.println("Microsoft Captive-portal request");
+            Serial.println(F("Microsoft Captive-portal request"));
         #endif	  
 		GetMainWeb();
       });        
 
-	  server.on("/refresh", [this](){ 
-        server.send(200, "text/html", "OK");
+	  server.on(F("/refresh"), [this](){ 
+        server.send(200, F("text/html"), F("OK"));
 		VoidRefreshData();
       });  	  
 
-	  server.on("/allclear", [this](){
-		LittleFS.format();
-        server.send(200, "text/html", "LittleFS formating");
+	  server.on(F("/formatingfs"), [this](){
+		SFS.format();
+        server.send(200, F("text/html"), F("SFS formating"));
       });
       
-      server.on("/getmoduleinfo", [this](){
+      server.on(F("/getmoduleinfo"), [this](){
 		bool isgetawaytype = !server.hasArg("t");
-        String tmpe = (String)Michome::id + (isgetawaytype ? "/n" : "<br />") + (String)Michome::type + (isgetawaytype ? "/n" : "<br />") + String(WiFi.RSSI()) + (isgetawaytype ? "/n" : "<br />") + String(WiFi.localIP().toString()) + (isgetawaytype ? "/n" : "<br />");
+        String tmpe = GetModule(0) + (isgetawaytype ? "/n" : "<br />") + GetModule(1) + (isgetawaytype ? "/n" : "<br />") + String(WiFi.RSSI()) + (isgetawaytype ? "/n" : "<br />") + String(WiFi.localIP().toString()) + (isgetawaytype ? "/n" : "<br />");
         tmpe += String(ESP.getFlashChipRealSize()) + (isgetawaytype ? "/n" : "<br />");
         #if defined(ADCV)
             tmpe += String((float)ESP.getVcc()/1024.0f) + (isgetawaytype ? "/n" : "<br />");
@@ -426,223 +460,203 @@ void Michome::_init(void)
         tmpe += String(FVer) + (isgetawaytype ? "/n" : "<br />");
         tmpe += String(__DATE__) + (isgetawaytype ? "/n" : "<br />");
         tmpe += String(__TIME__) + (isgetawaytype ? "/n" : "<br />");
-        tmpe += String(__BASE_FILE__ ) + (isgetawaytype ? "/n" : "<br />");
-		#if defined(EnableFSManager)
+        tmpe += String(__BASE_FILE__ ) + (isgetawaytype ? "/n" : "<br />");       
+		#if defined(EnableFSManager) && defined(FSBrowser_h)
             tmpe += String("fsmanageron") + (isgetawaytype ? "/n" : "<br />");
         #else
             tmpe += String("fsmanagerof") + (isgetawaytype ? "/n" : "<br />");
         #endif
-        server.send(200, "text/html", tmpe);
+		tmpe += ESP.getSketchMD5() + (isgetawaytype ? "/n" : "<br />");
+        server.send(200, F("text/html"), tmpe);
       });
       
       #ifdef ADCV
            server.on("/getvcc", [this](){
-            server.send(200, "text/html", String((float)ESP.getVcc()/1024.0f));
+            server.send(200, F("text/html"), String((float)ESP.getVcc()/1024.0f));
           });
       #endif
       
-      server.on("/setsettings", [this](){         
+      server.on(F("/setsettings"), [this](){         
         String settinga = "";
             for(int i=1; i < server.args(); i++) settinga += server.argName(i) + "=" + server.arg(i) + ";";
-        Michome::countsetting = Split(Split(settinga, ';', 0), '=', 1).toInt();
-        Michome::settings = settinga;
-        IsSettingRead = true;
-        Serial.println("Setting read OK");
-        #ifndef NoFs
-        AddLogFile("Setting read OK", false);
-        #endif
-        server.send(200, "text/html", settinga);
+        SetSettings(settinga);
+        server.send(200, F("text/html"), settinga);
       });     
       
-      server.on("/getsettings", [this](){
-        server.send(200, "text/html", GetSetting());
+      server.on(F("/getsettings"), [this](){
+        server.send(200, F("text/html"), GetSetting());
       });
       
-      server.on("/getdigital", [this](){
+      server.on(F("/getdigital"), [this](){
         int pin = server.arg("p").toInt();
-        server.send(200, "text/html", String(digitalRead(pin)));
+        server.send(200, F("text/html"), String(digitalRead(pin)));
       });
       
-      server.on("/getanalog", [this](){
-        server.send(200, "text/html", String(analogRead(A0)));
-      });    
+      server.on(F("/getanalog"), [this](){
+        server.send(200, F("text/html"), String(analogRead(A0)));
+      }); 
+
+	  server.on(F("/favicon.ico"), [this](){
+        server.send(200, "image/png", Favicon_png, Favicon_png_len);
+      });	  
       
-    #ifndef NoFS
       
-      server.on("/getconfig", [this](){
-		String tmp = "<meta charset=\"UTF-8\">";
+      server.on(F("/getconfig"), [this](){
+		String tmp = F("<meta charset=\"UTF-8\">");
 		for(int i = 0; i < CountWIFI; i++){
-			tmp += "Point "+(String)i+". SSID: "+(String)MainConfig.WIFI[i].SSID +" Password:"+(String)MainConfig.WIFI[i].Password + "<br />";
+			tmp += "Point " + (String)i + ". SSID: " + (String)MainConfig.WIFI[i].SSID + " Password:" + (String)MainConfig.WIFI[i].Password + "<br />";
 		}
-        server.send(200, "text/html", tmp + "<br />" + (String)MainConfig.Geteway + "<br />" + (String)(MainConfig.UseGeteway ? "true" : "false"));
+        server.send(200, F("text/html"), tmp + "<br />Gateway: " + (String)MainConfig.Geteway + "<br />Use Gateway: " + (String)(MainConfig.UseGeteway ? "true" : "false") + "<br />ID Module: " + (String)MainConfig.IDModule + "<br />Network: " + (String)MainConfig.MNetwork + "<br />Room: " + (String)MainConfig.MRoom);
       });
       
-      server.on("/setconfig", [this](){		
-        String ss0 = server.arg("ssid0");
-        String pw0 = server.arg("password0");
-		String ss1 = server.arg("ssid1");
-        String pw1 = server.arg("password1");
-		String ss2 = server.arg("ssid2");
-        String pw2 = server.arg("password2");
+      server.on(F("/setconfig"), [this](){
+		for(uint8_t i = 0; i < CountWIFI; i++){
+			String ss = server.arg("ssid"+(String)i);
+			String pw = server.arg("password"+(String)i);
+			memcpy(MainConfig.WIFI[i].SSID, ss.c_str(), WL_SSID_MAX_LENGTH);
+			memcpy(MainConfig.WIFI[i].Password, pw.c_str(), WL_WPA_KEY_MAX_LENGTH);
+		}
+
         byte WiFIS = server.arg("wifistandart").toInt();
-		
         String mid = server.arg("moduleid");
+        String mn = server.arg("mnetwork");
+        String mr = server.arg("mroom");
         String gt = server.arg("geteway");
         bool ug = server.hasArg("usegetaway") ? (server.arg("usegetaway") == "on") : false;
 		
-		ss0.toCharArray(MainConfig.WIFI[0].SSID, WL_SSID_MAX_LENGTH);
-		pw0.toCharArray(MainConfig.WIFI[0].Password, WL_WPA_KEY_MAX_LENGTH);	
+		if(mid != String(MainConfig.IDModule)){
+			AddLogFile(F("Changing module ID"));
+		}
 		
-		ss1.toCharArray(MainConfig.WIFI[1].SSID, WL_SSID_MAX_LENGTH);
-		pw1.toCharArray(MainConfig.WIFI[1].Password, WL_WPA_KEY_MAX_LENGTH);
-		
-		ss2.toCharArray(MainConfig.WIFI[2].SSID, WL_SSID_MAX_LENGTH);
-		pw2.toCharArray(MainConfig.WIFI[2].Password, WL_WPA_KEY_MAX_LENGTH);
-		
+		mn.toCharArray(MainConfig.MNetwork, WL_SSID_MAX_LENGTH);		
 		mid.toCharArray(MainConfig.IDModule, WL_SSID_MAX_LENGTH);		
 		gt.toCharArray(MainConfig.Geteway, WL_SSID_MAX_LENGTH);		
+		mr.toCharArray(MainConfig.MRoom, WL_SSID_MAX_LENGTH);		
 		MainConfig.UseGeteway = ug;
 		MainConfig.WIFIType = (WiFiPhyMode_t)WiFIS;
 		
         WriteWIFIConfig();    
         
-        AddLogFile("Config Saved");
-        server.send(200, "text/html", RussianHead("Конфигурация модуля", MetaRefresh("/")) + "Config Saved. Module restarting..");
+        AddLogFile(F("Config module saved"));
+        server.send(200, F("text/html"), RussianHead(F("Конфигурация модуля"), MetaRefresh("/")) + "Config Saved. Module restarting..");
         yieldM();
-        delay(500);
+        delay(200);
         ESP.reset();
       });
       
-      server.on("/resetconfig", [this](){
+      server.on(F("/resetconfig"), [this](){
 		WIFIConfig cf;		
 		
         WriteWIFIConfig(cf);        
         IsConfigured = false;
         
-        AddLogFile("Config Reset");
-        server.send(200, "text/html", RussianHead("Сброс настроек", MetaRefresh("/")));
+        AddLogFile(F("Config Reset"));
+        server.send(200, F("text/html"), RussianHead(F("Сброс настроек"), MetaRefresh("/")));
         ESP.reset();
       });
 	  
-	  server.on("/getoptionfirmware", [this](){
+	  server.on(F("/getoptionfirmware"), [this](){
 		  String tmp = "";
 		  for(byte i = 0; i < CountOptionFirmware; i++){
 			  tmp += (String)i + " = " + (GetOptionFirmware(i) ? "true" : "false") + "<br />";
 		  }
-        server.send(200, "text/html", tmp);    
+        server.send(200, F("text/html"), tmp);    
       });
       
-      server.on("/configurator", [this](){
+      server.on(F("/configurator"), [this](){
 		GetConfigerator();    
-      });
-
-      server.on("/getlogs", [this](){
-        //server.send(200, "text/html", RussianHead("Просмотр системных логов") + "<p><a href='/clearlogs'>Отчистить логи</a></p><br />" + FSLoger.ReadLogFile()); 
-		FSLoger.ReadLogFileToServer(&server);
       });  
       
-      server.on("/addlog", [this](){
+      server.on(F("/addlog"), [this](){
         String setting = server.arg("log");
         AddLogFile(setting);
-        server.send(200, "text/html", RussianHead("Добавление лога", MetaRefresh("/getlogs")));    
-      });
-
-      server.on("/clearlogs", [this](){
-        FSLoger.ClearLogFile();
-        server.send(200, "text/html", RussianHead("Отчистка логов..", MetaRefresh()) + "OK");    
-      });
+        server.send(200, F("text/html"), RussianHead(F("Добавление лога"), MetaRefresh("/getlogs")));    
+      });     
 	  
 	  #ifdef FSBrowser_h
 		InitFSBrowser(&server);
 	  #endif
-	  
-	  server.on("/fs", [this](){
-		String type = server.arg("type");
-		String file = server.arg("file");
-		if(type == "read"){
-			File f = LittleFS.open(file, "r");
-			if (server.streamFile(f, F("text/html")) != f.size()) {
-				AddLogFile("Sent less data than expected!");
-			}
-			f.close();	
-		}
-		else if(type == "delete"){
-			LittleFS.remove(file);	
-		}
-        server.send(200, "text/html", RussianHead("Отчистка логов..", MetaRefresh()) + "OK");    
-      });
       
       #ifdef WriteDataToFile
-        server.on("/getdatalogs", [this](){
-            //server.send(200, "text/html", RussianHead("Просмотр логов переданных на шлюз данных") + "<p><a href='/resetdatalogs'>Отчистить логи</a></p><br />" +  DataFile.ReadFile());    
+        server.on(F("/getdatalogs"), [this](){    
 			DataFile.ReadFileToServer(&server);
 		});
         
-        server.on("/cleardatalogs", [this](){
+        server.on(F("/cleardatalogs"), [this](){
             DataFile.ClearFile();
-            server.send(200, "text/html", RussianHead("Отчистка логов..", MetaRefresh()) + "OK");    
+            server.send(200, F("text/html"), RussianHead(F("Отчистка логов.."), MetaRefresh()) + "OK");    
         });
       #endif
 	  
-	    server.on("/saveqsettings", [this](){
-			String ntps = server.arg("ntpserver");
-			int utco = server.arg("utco").toInt()*60*60;
+	  server.on(F("/timemodule"), [this](){
+		if(server.arg("type") == "get" || !server.hasArg("type")){
+			server.send(200, F("text/html"), timeClient.getFormattedDateTime());
+		}
+		else if(server.arg("type") == F("update")){
+			timeClient.forceUpdate();
+			server.send(200, F("text/html"), F("<meta http-equiv='refresh' content='1;URL=/' />OK"));
+		}
+		else if(server.arg("type") == F("setting")){
+			String tmp = RussianHead(F("Настройка подсистемы времени"));
+			tmp += (String)"<form action='timemodule'><input type='hidden' name='type' value='save' /><table><tr><td>NTP сервер точного времени:<td><td><input type='text' name='ntpserver' value='"+_NTPServer+"' /></td></tr><tr><td>Часовой пояс (GMT+):<td><td><input type='number' name='utco' value='"+_utcoffset/60/60+"' /></td></tr></table><input type='submit' value='Сохранить' /></form><br /><a href='/timemodule?type=update'>Запросить время</a><br /><a href='/'>Главная</a>";
+			server.send(200, F("text/html"), tmp);
+		}
+		else if(server.arg("type") == F("save")){
+			String ntps = server.arg(F("ntpserver"));
+			int utco = server.arg(F("utco")).toInt()*60*60;
 			TimeSettings.WriteFile(ntps + ";" + (String)utco);
 			LoadNTP();
-			server.send(200, "text/html", "<meta http-equiv='refresh' content='1;URL=/' />OK");
-		});
-		server.on("/qsettings", [this](){
-			String tmp = RussianHead("Настройка системы таймеров");
-			tmp += (String)"<form action='saveqsettings'><table><tr><td>NTP Сервер точного времени:<td><td><input type='text' name='ntpserver' value='"+_NTPServer+"' /></td></tr><tr><td>Часовой пояс:<td><td><input type='number' name='utco' value='"+_utcoffset/60/60+"' /></td></tr></table><input type='submit' value='Сохранить' /></form><br /><a href='/'>Главная</a>";
-			server.send(200, "text/html", tmp);
-		});
-		server.on("/timemodule", [this](){
-			server.send(200, "text/html", timeClient.getFormattedDateTime());
-		});
-
-    #endif      
+			timeClient.forceUpdate();
+			server.send(200, F("text/html"), F("<meta http-equiv='refresh' content='1;URL=/' />OK"));
+		}
+	  });
       
-      server.on("/description.xml", HTTP_GET, [this](){
-        SSDP.schema(server.client());
-      });     
+      
+      server.on(F("/description.xml"), HTTP_GET, [this](){
+        SSDPMichome.schema(server.client());
+      });
+	  
+	  /*server.on(F("/cds.xml"), HTTP_GET, [this](){
+        server.send(200, F("text/xml"), F("<?xml version=\"1.0\"?> <scpd xmlns=\"urn:schemas-upnp-org:service-1-0\">   <specVersion>     <major>1</major>     <minor>0</minor>   </specVersion>   <actionList>     <action>     <name>SetTarget</name>       <argumentList>         <argument>           <name>newTargetValue</name>           <relatedStateVariable>Target</relatedStateVariable>           <direction>in</direction>         </argument>       </argumentList>     </action>     <action>     <name>GetTarget</name>       <argumentList>         <argument>           <name>RetTargetValue</name>           <relatedStateVariable>Target</relatedStateVariable>           <direction>out</direction>         </argument>       </argumentList>     </action>     <action>     <name>GetStatus</name>       <argumentList>         <argument>           <name>ResultStatus</name>           <relatedStateVariable>Status</relatedStateVariable>           <direction>out</direction>         </argument>       </argumentList>     </action>     </actionList>   <serviceStateTable>     <stateVariable sendEvents=\"no\">       <name>Target</name>       <dataType>boolean</dataType>       <defaultValue>0</defaultValue>     </stateVariable>     <stateVariable sendEvents=\"yes\">       <name>Status</name>       <dataType>boolean</dataType>       <defaultValue>0</defaultValue>     </stateVariable> </serviceStateTable> </scpd >"));
+      });*/     
       
       server.onNotFound([this](){
-        server.send(404, "text/html", "Not found on Michome module");
+        server.send(404, F("text/html"), F("Not found on Michome module"));
       });
 	  
 	  udpmodule.on(GetModule(0), [&](IPAddress from, String cmd){
-		 if(Split(cmd, '-', 1) == "Gettype"){
+		 if(Split(cmd, '-', 1) == F("Gettype")){
 			udpmodule.SendMulticast(udpmodule.GetData_MyType());
 		 }
-		 else if(Split(cmd, '-', 1) == "rssi"){
+		 else if(Split(cmd, '-', 1) == F("rssi")){
 			udpmodule.SendMulticast((String)WiFi.RSSI());
 		 } 
 	  });
 	  
 	  udpmodule.EventSendGateway([&](IPAddress from, String cmd)
 	  {
-		SendData(ParseJson("UDPData", cmd));
+		SendGateway(F("UDPData"), cmd);
 	  });
 	  
 	  udpmodule.EventSendURL([&](IPAddress from, String cmd)
 	  {
-		//SendData(ParseJson("UDPData", cmd));
+		//SendGateway("UDPData", cmd);
 	  });
 	  
-	  udpmodule.on("SetGatewayIP", [&](IPAddress from, String cmd)
+	  udpmodule.on(F("SetGatewayIP"), [&](IPAddress from, String cmd)
 	  {
 		String GATEWAYaddress = Split(cmd, '-', 1);
 		GATEWAYaddress.toCharArray(MainConfig.Geteway, WL_SSID_MAX_LENGTH);	
 		WriteWIFIConfig();
-		AddLogFile("Config Saved from change Gateway IP for UDP");
+		AddLogFile(F("Config Saved from change Gateway IP for UDP"));
         ESP.reset();
 	  });
-	  udpmodule.on("SetGatewayState", [&](IPAddress from, String cmd)
+	  udpmodule.on(F("SetGatewayState"), [&](IPAddress from, String cmd)
 	  {
 		bool GATEWAYstate = IsStr(Split(cmd, '-', 1), "on");
 		MainConfig.UseGeteway = GATEWAYstate;
 		WriteWIFIConfig();
-		AddLogFile("Config Saved from change Gateway state for UDP");
+		AddLogFile(F("Config Saved from change Gateway state for UDP"));
         ESP.reset();
 	  });
 	  
@@ -652,50 +666,132 @@ void Michome::_init(void)
       dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
       dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
       
-      SSDP.setDeviceType("upnp:rootdevice");
-      SSDP.setSchemaURL("description.xml");
-      SSDP.setHTTPPort(80);
-      SSDP.setName(String(id));
-      SSDP.setSerialNumber((String)ESP.getFlashChipId());
-      SSDP.setURL("/");
-      SSDP.setModelName(String("MichomModule-")+Michome::type);
-      SSDP.setModelNumber("000000000001");
-      SSDP.setModelURL("http://www.github.com/microfcorp/michome");
-      SSDP.setManufacturer("Microf-Dev");
-      SSDP.setManufacturerURL("http://www.github.com/microfcorp/michome");
-      SSDP.begin();
+      SSDPMichome.setDeviceType(F("upnp:rootdevice"));
+      SSDPMichome.setDeviceTypeExtern(F("urn:schemas-upnp-org:device:HVAC_System:1")); //HVAC_System
+      SSDPMichome.setSchemaURL(F("description.xml"));
+      SSDPMichome.setHTTPPort(80);
+      SSDPMichome.setName(GetModule(0));
+      SSDPMichome.setSerialNumber((String)ESP.getFlashChipId());
+      SSDPMichome.setURL(F("/"));
+      SSDPMichome.setModelName(String("MichomModule-")+GetModule(1));
+      SSDPMichome.setModelNumber(GetModule(1));
+      SSDPMichome.setModelURL(F("http://www.github.com/microfcorp/michome"));
+      SSDPMichome.setManufacturer(F("Lexap-Dev"));
+      SSDPMichome.setManufacturerURL(F("http://www.github.com/microfcorp/michome"));
+      SSDPMichome.begin();
 	  
 	  timeClient.begin();
-	  LoadNTP();
+	  LoadNTP();	  
 	  
-	  telnetmodule.SetID(id);
+	  telnetmodule.on((F("geterror")), (F("Listing on all modules error")), [&]() {
+		  telnetmodule.printlnNIA((String)ansiEND + "Found " + String(mErrors.size()) + " errors:");
+		  for(uint8_t i = 0; i < mErrors.size(); i++){
+			  michomeError err = mErrors.get(i);
+			  telnetmodule.printlnNIA((String)ansiREDF + err.source + " (" + err.file + ", " + err.moduleUptime + ") - " + err.message + ansiEND);
+		  }
+		  telnetmodule.println();
+	  });
+	  
+	  telnetmodule.on((F("sendbuffers")), (F("Listing on gateway send buffer")), [&]() {
+		  telnetmodule.printlnNIA((String)ansiEND + "Found " + String(sendBuffer.size()) + " chunks:");
+		  for(uint8_t i = 0; i < sendBuffer.size(); i++){
+			  sendBufferChunk chunk = sendBuffer.get(i);
+			  telnetmodule.printlnNIA((String)ansiREDF + "ID: " + i + ansiEND + " Type: " + chunk.Type + " (unixTime: " + chunk.unixTime + ", upTime:" + chunk.mUptime + ", Timeout: " + chunk.Timeout + ") - " + (strlen(chunk.Data) == 0 ? (String)ansiREDF + "NOT DATA" + ansiEND : chunk.Data) + ansiEND);
+		  }
+		  telnetmodule.println();
+	  });
+	  
+	  telnetmodule.on((F("sendchunk")), (F("Send selected chunk")), [&]() {
+		  uint16_t id = Split(telnetmodule.read(), ';', 1).toInt();
+		  if(id >= sendBuffer.size() || id < 0){
+			  telnetmodule.printlnNIA((String)ansiREDF + "Selected id ("+id+") is not valid" + ansiEND);
+			  telnetmodule.println();
+			  return;
+		  }
+		  sendBufferChunk chunk = sendBuffer.get(id);
+		  telnetmodule.printlnNIA((String)ansiREDF + "Selected ID: " + id + ansiEND + " Type: " + chunk.Type + " (unixTime: " + chunk.unixTime + ", upTime:" + chunk.mUptime + ", Timeout: " + chunk.Timeout + ") - " + (strlen(chunk.Data) == 0 ? (String)ansiREDF + "NOT DATA" + ansiEND : chunk.Data) + ansiEND);
+		  telnetmodule.printlnNIA((String)ansiEND + "Sending to gateway...");
+		  if(SendData(chunk)){
+			  telnetmodule.printlnNIA((String)ansiGRNF + "Sending OK" + ansiEND);
+			  sendBuffer.remove(id);
+		  }
+		  else{
+			  telnetmodule.printlnNIA((String)ansiREDF + "Sending Error" + ansiEND);
+		  }
+		  telnetmodule.println();
+	  });
+	  
+	  telnetmodule.on((F("refresh")), (F("Refresh module data")), [&]() {
+		  telnetmodule.printlnNIA((String)ansiEND + "Refreshing...");
+		  VoidRefreshData();
+		  telnetmodule.printlnNIA((String)ansiGRNF + "OK" + ansiEND);
+		  telnetmodule.println();
+	  });
+	  
+	  #ifdef EnableExternalUnits
+		  telnetmodule.on((F("scanwire")), (F("Scaning I2C interfaces")), [&]() {
+			  telnetmodule.printlnNIA((String)ansiEND + "Found " + String(exUnit.WIREScan()) + " devices:");
+			  for(uint8_t i = 0; i < exUnit.foundWIRE.size(); i++){
+				  telnetmodule.printlnNIA((String)ansiGRNF + "Device "+String(i)+" - 0x" + String(exUnit.foundWIRE.get(i), HEX) + ansiEND);
+			  }
+			  telnetmodule.println();
+		  });
+		  
+		  #ifdef Enable24Cxx
+		  if(exUnit.isAT24CXX()){
+			  telnetmodule.on((F("read24")), (F("Reading byte from AT24xx {read24;1}")), [&]() {
+				  uint16_t addr = Split(telnetmodule.read(), ';', 1).toInt();
+				  uint8_t data = exUnit.GetAT24CXX().read(addr);
+				  telnetmodule.printlnNIA((String)ansiEND + String(addr, HEX) + " = " + String(data, HEX));
+				  telnetmodule.println();
+			  });
+			  telnetmodule.on((F("write24")), (F("Wryting byte from AT24xx {write;1;5}")), [&]() {
+				  String rd = telnetmodule.read();
+				  uint16_t addr = Split(rd, ';', 1).toInt();
+				  uint8_t data = Split(rd, ';', 2).toInt();
+				  exUnit.GetAT24CXX().write(addr, data);
+				  telnetmodule.printlnNIA((String)ansiEND + String(addr, HEX) + " = " + String(data, HEX));
+				  telnetmodule.println();
+			  });
+		  }
+		  #endif
+	   #endif
+	  
+	  telnetmodule.SetID(GetModule(0));
 	  telnetmodule.Init();	
       
 	  WiFi.scanNetworks(true);
+	  
+	  pinWatch.SetPinWatcherHandler([&](uint8_t pin, bool state){
+		  SendGateway(F(BUTTONPRESS), String(pin) + "=1");
+	  });
+	  pinWatch.init();
 	  
       StrobeBuildLed(70);
       
       #ifdef UsingWDT
 		  #if defined(DebugConnection)
-		  	Serial.println("WDT Enable");
+		  	Serial.println(F("WDT Enable"));
 		  #endif
           ESP.wdtDisable();
           ESP.wdtEnable(WDTO_8S);
       #endif
 	  
 	  #if defined(DebugConnection)
-		Serial.println("Module is full load");
-		Serial.println("");
+		Serial.println(F("Module is full load"));
+		Serial.println();
       #endif
 	  
 	  NTPUpdate.Start();
+	  SendChunk.Start();
 }
 
 void Michome::CreateAP(void){
-    WiFi.softAP(Michome::id, PasswordAPWIFi);
+	AddLogFile(F("Starting AP"), false);
+    WiFi.softAP(GetModule(0), PasswordAPWIFi);
     
     IPAddress myIP = WiFi.softAPIP(); //192.168.4.1 is default
-	Serial.print("AP IP address: ");
+	Serial.print(F("AP IP address: "));
 	Serial.println(myIP);    
 }
 
@@ -726,6 +822,41 @@ void Michome::running(void)
 	yieldWarn();
 }
 
+void Michome::yieldWarn(void){
+    mdns.update();
+	server.handleClient();
+	#ifdef FlashOTA
+		ArduinoOTA.handle();
+	#endif
+	if(SaveModeReboot.IsTick() && IsSaveMode){
+		AddLogFile(F("Attempt reboot for safe mode.."), true);
+		ESP.restart();
+	}
+	if(IsSaveMode) return;
+	dnsServer.processNextRequest();
+	telnetmodule.Running();
+	udpmodule.running();
+	pinWatch.running();
+	if(!timeClient.update() && IsConfigured){					
+		AddLogFile(F("NTP server time read error"), true);		
+	}
+	#if defined(EnableExternalUnits) && defined(EnableDS3231)
+		if(NTPUpdate.IsTick()){
+			DS3231& ds32 = exUnit.GetDS3231();
+			ds32.setTime(timeClient.getSeconds(),
+				timeClient.getMinutes(),
+				timeClient.getHours(),
+				timeClient.getDayWeek(),
+				timeClient.getDay(),
+				timeClient.getMounth(),
+				timeClient.getYear());
+		}
+	#endif
+	if(SendChunk.IsTick()){
+		UpdateSendChunk();
+	}
+}
+
 void Michome::StrobeBuildLed(byte timeout){
     digitalWrite(BuiltLED, LOW);
     delay(timeout);
@@ -733,7 +864,83 @@ void Michome::StrobeBuildLed(byte timeout){
 }
 
 void Michome::GetMainWeb(){
-    WebMain(&server, type, id, timeClient.getFormattedDateTime(), GetOptionFirmware(TimerLightModules), GetOptionFirmware(UDPTrigger), MainConfig.UseGeteway, FirVersion, CheckConnectToGateway());
+	#if defined(EnableExternalUnits)
+		bool isds32 = exUnit.isDS3231();
+		bool isEXUnit = true;
+	#else
+		bool isds32 = false;
+		bool isEXUnit = false;
+	#endif
+	if(server.hasArg("params") && server.arg("params") == "get") //ajax request
+	{
+		if (!server.chunkedResponseModeStart(200, F("text/html"))) {
+			server.send(505, F("text/html"), F("HTTP1.1 required"));
+			AddErrorChucked(this, F("Michome::GetMainWeb(ajax)"));
+			return;
+		}
+		server.sendContent(F("{\"type\":\"MainWeb\","));
+		
+		server.sendContent(F("\"typeModule\":\""));
+		server.sendContent(GetModule(1));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"idModule\":\""));
+		server.sendContent(GetModule(0));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"isDS32\":\""));
+		server.sendContent(isds32 ? F("true") : F("false"));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"isEXUnit\":\""));
+		server.sendContent(isEXUnit ? F("true") : F("false"));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"version\":\""));
+		server.sendContent(String(FirVersion));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"useGateway\":\""));
+		server.sendContent(MainConfig.UseGeteway ? F("true") : F("false"));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"rssi\":\""));
+		server.sendContent(String(WiFi.RSSI()));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"time\":\""));
+		server.sendContent(String(timeClient.getFormattedDateTime()));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"uptime\":\""));
+		server.sendContent(millisToTime(millis()));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"ssidV\":\""));
+		server.sendContent(WiFi.SSID());
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"ip\":\""));
+		server.sendContent(WiFi.localIP().toString());
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"lip\":\""));
+		server.sendContent(F(LocalIPAP));
+		server.sendContent(F("\","));
+		
+		server.sendContent(F("\"wifiState\":\""));
+		server.sendContent(WiFi.status() != WL_CONNECTED ? F("false") : F("true"));
+		server.sendContent(F("\""));
+		
+		server.sendContent(F("}"));
+		server.chunkedResponseFinalize();
+	}
+	else
+		WebMain(&server, GetModule(1), GetOptionFirmware(TimerLightModules), MainConfig.UseGeteway, (WiFi.status() == WL_CONNECTED ? CheckConnectToGateway() : false), &mErrors);
+}
+
+void Michome::GetConfigerator(){
+    WebConfigurator(&GetServer(), &MainConfig);
 }
 
 void Michome::ChangeWiFiMode(){
@@ -761,16 +968,17 @@ WIFIConfig Michome::ReadWIFIConfig(){
     WIFIConfig cf;
     WIFINetwork nf;
     
-    File f = LittleFS.open("/config.bin", "r");
+    File f = SFS.open("/config.bin", "r");
     if (!f) {
-        Serial.println("Module configuration file not found");  //  "открыть файл не удалось"
-		strncpy(nf.SSID, "", sizeof(nf.SSID));
-		strncpy(nf.Password, "", sizeof(nf.Password));
-		cf.WIFI[0] = nf;
-		cf.WIFI[1] = nf;
-		cf.WIFI[2] = nf;
-		strncpy(cf.Geteway, "", sizeof(cf.Geteway));
-		strncpy(cf.IDModule, id, sizeof(cf.Geteway));
+        Serial.println(F("Module configuration file not found"));  //  "открыть файл не удалось"
+		strncpy(nf.SSID, "\0", sizeof(nf.SSID));
+		strncpy(nf.Password, "\0", sizeof(nf.Password));
+		for(uint8_t i = 0; i < CountWIFI; i++)
+			cf.WIFI[i] = nf;
+		strncpy(cf.Geteway, "\0", sizeof(cf.Geteway));
+		strncpy(cf.MNetwork, "\0", sizeof(cf.MNetwork));
+		strncpy(cf.MRoom, "\0", sizeof(cf.MRoom));
+		strncpy(cf.IDModule, id, sizeof(cf.IDModule));
         cf.UseGeteway = false;
 		cf.WIFIType = DefaultWIFIStandart;
 		WriteWIFIConfig(cf);
@@ -779,15 +987,16 @@ WIFIConfig Michome::ReadWIFIConfig(){
     else{
         f.read((byte *)&cf, sizeof(cf));
 		f.close();
-		Serial.println("Module configuration file sucess reading");  //  "открыть файл не удалось"		
+		Serial.println(F("Module configuration file success reading"));  //  "открыть файл не удалось"		
         return cf;
     }    
 }
 
 void Michome::WriteWIFIConfig(WIFIConfig conf){  
-    File f = LittleFS.open("/config.bin", "w");
+    File f = SFS.open("/config.bin", "w");
     if (!f) {
-        Serial.println("Error open config.bin for write");  //  "открыть файл не удалось"
+        Serial.println(F("Error open config.bin for write"));  //  "открыть файл не удалось"
+		AddError(F(__FILE__), F("Michome::WriteWIFIConfig(WIFIConfig)"), F("Error open config.bin for write"));
         return;
     }
     else{
@@ -852,70 +1061,282 @@ bool Michome::CheckConnectToGateway(){
 //
 String Michome::SendDataGET(String gateway, String host, int Port)
 { 
-          if((WiFi.status() != WL_CONNECTED))
-              return "";          
-		  
-		  WiFiClient client;
-		  HTTPClient http;
-		  http.setTimeout(TimeoutConnection);
-		  PortPrintln((String)"Start GET connect to " + host + ":" + String(Port));
-		  if (http.begin(client, host, Port, gateway)) {  // HTTP
-		    int httpCode = http.GET();
-			String payload = http.getString();
-			http.end();
-			return payload;
-		  }
-		  return "";		  		  		  
+	if((WiFi.status() != WL_CONNECTED))
+	  return "";          
+
+	WiFiClient client;
+	HTTPClient http;
+	http.setTimeout(TimeoutConnection);
+	PortPrintln((String)"Start GET connect to " + host + ":" + String(Port));
+	if (http.begin(client, host, Port, gateway)) {  // HTTP
+		int httpCode = http.GET();
+		String payload = http.getString();
+		http.end();
+		return payload;
+	}
+	http.end();
+	return "";		  		  		  
 }
 String Michome::SendDataPOST(const char* gateway, String host, int Port, String Data)
 { 
-          if((WiFi.status() != WL_CONNECTED))
-              return "";
-          
-		  WiFiClient client;
-		  HTTPClient http;
-		  http.setTimeout(TimeoutConnection);
-		  PortPrintln((String)"Start POST connect to " + host + ":" + String(Port));
-		  if (http.begin(client, host, Port, gateway)) {  // HTTP
-		    int httpCode = http.POST(Data);
-			String payload = http.getString();
-			http.end();
-			return payload;
-		  }
-		  return "";
-}
-void Michome::SendData()
-{
-    SendData(ParseJson(String(type), ""));
-}
-void Michome::SendData(String Data)
-{  
-          #ifdef DurationLog
-            unsigned long starttime = millis();
-          #endif
-          
-          if((WiFi.status() != WL_CONNECTED))
-              return;
-		  
-		  if(!MainConfig.UseGeteway){
-			  Serial.println("Geteway is off");
-			  return;
-		  }           
-          
-		  SendDataPOST(MichomePHPPath, GetGatewayHost(), GetGatewayPort(), Data);
-          
-          #if !defined(NoFS) && !defined(NoAddLogSendData)
-			AddLogFile("Send data OK");
-          #endif
+	if((WiFi.status() != WL_CONNECTED))
+	  return "";
 
-          #if defined(DurationLog) && !defined(NoAddLogSendData)
-              unsigned long endtime = millis();                  
-              AddLogFile("Time Sending: " + String(endtime - starttime));
-          #endif
-          yield();
+	WiFiClient client;
+	HTTPClient http;
+	http.setTimeout(TimeoutConnection);
+	PortPrintln((String)"Start POST connect to " + host + ":" + String(Port));
+	if (http.begin(client, host, Port, gateway)) {  // HTTP
+		int httpCode = http.POST(Data);
+		String payload = http.getString();
+		http.end();
+		return payload;
+	}
+	http.end();
+	return "";
+}
+bool Michome::SendGateway()
+{
+	return SendGateway(GetModule(0), "");
+}
+bool Michome::SendGateway(String type, String data)
+{
+    sendBufferChunk chunk;
+	chunk.unixTime = timeClient.getEpochTime();
+	chunk.mUptime = millis();
+	chunk.Timeout = TimeoutConnection;
+	type.toCharArray(chunk.Type, WL_SSID_MAX_LENGTH);
+	data.toCharArray(chunk.Data, MAX_SENDDATA_LENGTH);
+    return SendGateway(chunk);
+}
+bool Michome::SendGateway(sendBufferChunk chunk)
+{
+	if(sendBuffer.size() >= SizeSendBuffer){
+		#if defined(RemoveFirstBuffer)
+			AddLogFile(F("Maximum sendBuffer size. Remove last element"));
+			sendBuffer.shift();
+			sendBuffer.add(chunk);
+			return true;
+		#else
+			AddLogFile(F("Maximum sendBuffer size"));
+		#endif
+		return false;
+	}
+	sendBuffer.add(chunk);
+	return true;
+}
+void Michome::UpdateSendChunk(void)
+{
+	#ifndef AutoSendBuffer
+		return;
+	#endif
+	for(uint8_t i = 0; i < sendBuffer.size(); i++)
+	{
+		if(SendData(sendBuffer.get(i))){
+			sendBuffer.remove(i);
+			i--;
+		}
+		else{
+			//Не удалось отправить данный чанк :(
+			PortPrintln((String)"Error sending chunk ID: " + i);
+		}
+	}
+}
+//Парсит в JSON и отправляет данные на сервер
+bool Michome::SendData(sendBufferChunk Chunk)
+{  
+	#ifdef DurationLog && !defined(NoAddLogSendData)
+		unsigned long starttime = millis();
+	#endif
+	
+	bool isSend = false;
+
+	if((WiFi.status() != WL_CONNECTED)) //Если нет wifi коннекта
+		return false;
+
+	if(!MainConfig.UseGeteway){ //Если выключена работа со шлюзом
+		PortPrintln(F("Geteway is off"));
+		return true;
+	}
+
+	char buffSend[550] = "\0";
+	char buffData[150] = "\0";
+	
+	JSONData(buffData, Chunk.Type, Chunk.Data); 
+	
+	sprintf_P(buffSend, JSONSendData, 
+		WiFi.localIP().toString().c_str(), 
+		FirVersion,
+		WiFi.RSSI(),
+		WiFi.macAddress().c_str(),
+		Chunk.Type,
+		buffData);
+	
+	const char *b = buffSend;	
+
+	WiFiClient client;
+	
+	#if defined(UseHTTPLibToGateway)
+		HTTPClient http;
+		http.setTimeout(Chunk.Timeout);	
+		if (http.begin(client, GetGatewayHost(), GetGatewayPort(), MichomePHPPath)) {  // HTTP
+			http.addHeader(F("Content-Type"), F("application/json"));
+			http.setUserAgent(F("MichomeModule_ESP8266"));
+			http.useHTTP10(true);
+			http.setReuse(false);
+			http.addHeader(F("Module-Serial"), (String)ESP.getFlashChipId());
+			http.addHeader(F("Module-MAC"), WiFi.macAddress());
+			http.addHeader(F("Module-Type"), GetModule(1));
+			http.addHeader(F("Module-IP"), WiFi.localIP().toString());
+			http.addHeader(F("Module-Room"), MainConfig.MRoom);
+			http.addHeader(F("Module-Network"), MainConfig.MNetwork);
+			http.addHeader(F("Module-Time"), String(Chunk.unixTime));
+			http.addHeader(F("Module-RealTime"), String(CurrentTimeCallback()));
+			http.addHeader(F("Module-ID"), GetModule(0));
+			
+			int httpCode = http.POST((const uint8_t*)b, strlen(buffSend));
+			if(httpCode == HTTP_CODE_NOT_FOUND){
+				AddLogFile(F("Gateway URL not found"));
+			}
+			else if(httpCode == -11){
+				AddLogFile(F("Gateway Fucked error -11"));
+				isSend = true;
+			}
+			else if(httpCode != HTTP_CODE_OK){
+				AddLogFile("Gateway POST request error: " + String(httpCode));
+			}
+			else{
+				isSend = true;
+				const String& payload = http.getString();
+				#if !defined(NoFS) && !defined(NoAddLogSendData)
+					AddLogFile(F("Send data OK"));
+				#endif
+				parseGatewayResponce(payload, isSend);
+			}
+		}
+		else{
+			PortPrintln(F("Error initial HTTP request"));
+		}
+		http.end();	
+	#else
+		client.setTimeout(Chunk.Timeout);
+		// Connect to the server
+		if (!client.connect(GetGatewayHost(), GetGatewayPort())) {
+			PortPrintln(F("Connection to server failed"));
+			return false;
+		}
+		
+		char HTTPReq[500] = "\0";
+		strcpy_P(HTTPReq, HTTPHeader);
+
+		// Send the POST request
+		client.printf(HTTPReq,
+				   MichomePHPPath,
+				   GetGatewayHost().c_str(),
+				   ESP.getFlashChipId(),
+				   WiFi.macAddress().c_str(),
+				   Michome::type,
+				   WiFi.localIP().toString().c_str(),
+				   MainConfig.MRoom,
+				   MainConfig.MNetwork,
+				   Chunk.unixTime,
+				   CurrentTimeCallback(),
+				   Michome::id,
+				   strlen(buffSend));
+				   
+		client.print(b);
+
+		unsigned long timeout = millis();
+		while (!client.available()) {
+			if (millis() - timeout > GatewayResponceTimeout) {
+				AddLogFile(F("Gateway responce timeout"));
+				client.stop();
+				return false;
+			}
+		}
+
+		timeout = millis();
+
+		while(client.available() && millis() - timeout < 4000){
+			String line = client.readStringUntil('\r');
+			if(IsStr(line, F("HTTP/"))){ //http заголовок
+				int httpCode = Split(line, ' ', 1).toInt();
+				if(httpCode == HTTP_CODE_NOT_FOUND){
+					AddLogFile(F("Gateway URL not found"));
+				}
+				else if(httpCode != HTTP_CODE_OK){
+					AddLogFile("Gateway POST request error: " + String(httpCode));
+				}
+				else{
+					isSend = true;
+					#if !defined(NoFS) && !defined(NoAddLogSendData)
+						AddLogFile(F("Send data OK"));
+					#endif
+				}
+			}
+			if(isSend && line == "\n"){
+				line = client.readStringUntil('\r');
+				parseGatewayResponce(line, isSend);
+			}
+		}
+
+		client.stop();
+	#endif
+
+	#if defined(DurationLog) && !defined(NoAddLogSendData)
+		unsigned long endtime = millis();                  
+		AddLogFile("Time Sending: " + String(endtime - starttime) + " ms");
+	#endif
+	yield();
+	return isSend;
+}
+void Michome::parseGatewayResponce(String resp, bool &isOK){
+	//{"name":"getpost","type":"init","serverDate":4546454,"device":"192.168.0.175","data":{"settings":"SCount=2;update=600000"},"error":"none","errorCode":"0"}
+	//{"name":"getpost","type":"meteostation","serverDate":4546454,"device":"192.168.0.175","data":[],"error":"none","errorCode":"0"}
+	
+	if(resp.length() < 60){
+		AddLogFile(F("Gateway responce is small size"));
+		isOK = false;
+		return;
+	}
+    if(IsStr(resp, "php") || IsStr(resp, "PHP")){
+		FSFiles phpERR = FSFiles("phpError.txt");
+		phpERR.WriteFile(resp);
+		#if defined(EnableFSManager)
+			AddLogFile(F("PHP error on Gateway. See /fsedit?file=/phpError.txt"));
+		#else
+			AddLogFile(F("PHP error on Gateway (log: phpError.txt)"));
+		#endif
+		isOK = false;
+		return;
+	}	
+	
+	DynamicJsonDocument root(512);
+	deserializeJson(root, resp);
+	if(root["errorCode"].as<int>() != 0){
+		AddLogFile("Gateway responce error: " + String(root["error"].as<const char*>()));
+		return;
+	}
+	String TypeReq = String(root["type"].as<const char*>());
+	if(root["data"].containsKey("settings")){
+		String setting = String(root["data"]["settings"].as<const char*>());		
+        SetSettings(setting);
+	}
+	time_t serverTime = root["serverDate"].as<time_t>();
+	time_t currentTime = CurrentTimeCallback();
+	if(abs(serverTime - (currentTime - timeClient.getTimeOffset())) > 3601){
+		AddLogFile("Gateway and module time is not synchro. Range: " + String(abs(serverTime - currentTime)) + ". Synchronize");
+		timeClient.setEpochTime(serverTime);
+	}
+}
+void Michome::SetSettings(String strSett){
+    Michome::countsetting = Split(Split(strSett, ';', 0), '=', 1).toInt();
+	Michome::settings = strSett;
+	IsSettingRead = true;
+	AddLogFile(F("Setting read OK"));
 }
 String Michome::GetModule(byte num){
-    if(num == 0) return id;        
+    if(num == 0) return String(MainConfig.IDModule);        
     else if(num == 1) return type;
     else return "";
 }
@@ -924,27 +1345,9 @@ void Michome::yieldM(void){
     running();
     yield();
 }
-void Michome::yieldWarn(void){
-    //mdns.update();
-	server.handleClient();
-	ArduinoOTA.handle();
-	if(IsSaveMode) return;
-	dnsServer.processNextRequest();
-	telnetmodule.Running();
-	udpmodule.running();
-	#ifndef NoFS
-	if(!timeClient.update() && IsConfigured /*&& NTPUpdate.IsTick()*/){					
-		AddLogFile("NTP server time read error", true);		
-	}
-	#endif
-	if(SaveModeReboot.IsTick() && IsSaveMode){
-		AddLogFile("Attempt reboot for safe mode..", true);
-		ESP.restart();
-	}
-}
 Logger Michome::GetLogger()
 {
-      return Logger(GetHost, MainConfig.Geteway);
+    return Logger(GetHost, MainConfig.Geteway);
 }
 String Michome::Split(String data, char separator, int index)
 {
@@ -962,8 +1365,8 @@ String Michome::Split(String data, char separator, int index)
 
   return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
-String Michome::ParseJson(String type, String data){
-      #if defined(WriteDataToFile) && !defined(NoFS)
+void Michome::JSONData(char *buffData, char *type, char *data){
+      /*#if defined(WriteDataToFile) && !defined(NoFS)
         DataFile.AddTextToFile("Parsing data ("+type+"): " + (data == "" ? "none data for parsing" : data));
       #endif
               
@@ -980,47 +1383,50 @@ String Michome::ParseJson(String type, String data){
       #endif     
       temp += "\"type\":";
       temp += "\"" + type + "\",";
-      if(IsStr(type, StudioLight) || IsStr(type, "LightStudio")){    
-          temp += "\"data\":{";
-          temp += "\"status\": \"" + String("OK") + "\"}";
-      }
-      else if(IsStr(type, Informetr)){    
-          temp += "\"data\":{";
-          temp += "\"data\": \"" + String("GetData") + "\"}";
-      }
-      else if(IsStr(type, Logs)){    
-          temp += "\"data\":{";
-          temp += "\"log\": \"" + String("On Running") + "\"}";
-      }
-      else if(IsStr(type, HDC1080md)){    
-          temp += "\"data\":{";
-          temp += "\"temper\": \"" + Split(data, ';', 0) + "\",";
-          temp += "\"humm\": \"" + Split(data, ';', 1) + "\"}";
-      }
-      else if(IsStr(type, Termometr)){    
-          temp += "\"data\":{";
-          temp += "\"temper\": \"" + data + "\"}";
-      }
-      else if(IsStr(type, Msinfoo)){    
-          temp += "\"data\":{";
-          temp += "\"davlen\": \"" + Split(data, ';', 0) + "\",";
-          temp += "\"temperbmp\": \"" + Split(data, ';', 1) + "\",";
-          temp += "\"visot\": \"" + Split(data, ';', 2) + "\",";
-          temp += "\"temper\": \"" + Split(data, ';', 3) + "\",";
-          temp += "\"humm\": \"" + Split(data, ';', 4) + "\" }";
-      }
-      else if(IsStr(type, Initialization)){    
-          temp += "\"data\":{";
-          temp += "\"type\": \"" + String(Michome::type) + "\",";
-          temp += "\"id\": \"" + String(Michome::id) + "\" }";
-      }
-      else if(IsStr(type, ButtonData)){    
-          temp += "\"data\":{";
-          temp += "\"status\": \"" + data + "\" }";
-      }
-      else{
-          temp += "\"data\":\"" + data + "\"";
-      }
+      
       temp += "}         \r\n";
-      return temp;
+      return temp;*/
+	  
+	String temp = "";
+	if(IsStr(type, StudioLight)){    
+	  temp += "{";
+	  temp += "\"status\":\"OK\"";
+	  temp += "}";
+	}
+	else if(IsStr(type, Informetr)){    
+	  temp += "{";
+	  temp += "\"data\":\"GetData\"";
+	  temp += "}";
+	}
+	else if(IsStr(type, Logs)){    
+	  temp += "{";
+	  temp += "\"log\":\"" + data + "\"";
+	  temp += "}";
+	}
+	else if(IsStr(type, MeteoModule)){    
+	  temp += "{";
+	  temp += "\"meteo\":[" + data + "]";
+	  temp += "}";
+	}
+	else if(IsStr(type, PowerMods)){    
+	  temp += "{";
+	  temp += "\"power\":[" + data + "]";
+	  temp += "}";
+	}
+	else if(IsStr(type, Initialization)){    
+	  temp += "{";
+	  temp += "\"type\":\"" + String(Michome::type) + "\",";
+	  temp += "\"id\":\"" + String(Michome::id) + "\",";
+	  temp += "\"settings\":\"none\"";
+	  temp += "}";
+	}
+	else if(IsStr(type, BUTTONPRESS)){    
+	  temp += "{";
+	  temp += "\"status\":\"" + data + "\"";
+	  temp += "}";
+	}
+	else{
+	  temp += "\"" + data + "\"";
+	}
+	temp.toCharArray(buffData, 150);
 }

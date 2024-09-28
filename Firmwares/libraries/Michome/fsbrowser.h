@@ -10,21 +10,21 @@ ESP8266WebServer *server2;
 #if defined USE_SPIFFS
 	#include <FS.h>
 	const char* fsName = "SPIFFS";
-	FS* fileSystem = &SPIFFS;
+	FS* fileSystem = &SFS;
 	SPIFFSConfig fileSystemConfig = SPIFFSConfig();
 #elif defined USE_LITTLEFS
 	#include <LittleFS.h>
 	const char* fsName = "LittleFS";
-	FS* fileSystem = &LittleFS;
+	FS* fileSystem = &SFS;
 	LittleFSConfig fileSystemConfig = LittleFSConfig();
 #elif defined USE_SDFS
 	#include <SDFS.h>
 	const char* fsName = "SDFS";
-	FS* fileSystem = &SDFS;
+	FS* fileSystem = &SFS;
 	SDFSConfig fileSystemConfig = SDFSConfig();
 	// fileSystemConfig.setCSPin(chipSelectPin);
 #else
-#error Please select a filesystem first by uncommenting one of the "#define USE_xxx" lines at the beginning of the sketch.
+	#error Please select a filesystem first by uncommenting one of the "#define USE_xxx" lines in the config.h
 #endif
 String unsupportedFiles = String();
 
@@ -81,22 +81,22 @@ void handleStatus() {
   String json;
   json.reserve(128);
 
-  json = "{\"type\":\"";
+  json = F("{\"type\":\"");
   json += fsName;
-  json += "\", \"isOk\":";
+  json += F("\", \"isOk\":");
   if (fsOK) {
 	fileSystem->info(fs_info);
 	json += F("\"true\", \"totalBytes\":\"");
 	json += fs_info.totalBytes;
 	json += F("\", \"usedBytes\":\"");
 	json += fs_info.usedBytes;
-	json += "\"";
+	json += F("\"");
   } else {
-	json += "\"false\"";
+	json += F("\"false\"");
   }
   json += F(",\"unsupportedFiles\":\"");
   json += unsupportedFiles;
-  json += "\"}";
+  json += F("\"}");
 
   (*server2).send(200, "application/json", json);
 }
@@ -149,9 +149,9 @@ void handleFileList() {
 	  output = '[';
 	}
 
-	output += "{\"type\":\"";
+	output += F("{\"type\":\"");
 	if (dir.isDirectory()) {
-	  output += "dir";
+	  output += F("dir");
 	} else {
 	  output += F("file\",\"size\":\"");
 	  output += dir.fileSize();
@@ -165,11 +165,11 @@ void handleFileList() {
 	  output += dir.fileName();
 	}
 
-	output += "\"}";
+	output += F("\"}");
   }
 
   // send last string
-  output += "]";
+  output += F("]");
   (*server2).sendContent(output);
   (*server2).chunkedResponseFinalize();
 }
@@ -257,7 +257,7 @@ void handleFileCreate() {
 #endif
 
   if (path == "/") {
-	return replyBadRequest("BAD PATH");
+	return replyBadRequest(F("BAD PATH"));
   }
   if (fileSystem->exists(path)) {
 	return replyBadRequest(F("PATH FILE EXISTS"));
@@ -289,7 +289,7 @@ void handleFileCreate() {
   } else {
 	// Source specified: rename
 	if (src == "/") {
-	  return replyBadRequest("BAD SRC");
+	  return replyBadRequest(F("BAD SRC"));
 	}
 	if (!fileSystem->exists(src)) {
 	  return replyBadRequest(F("SRC FILE NOT FOUND"));
@@ -356,7 +356,7 @@ void handleFileDelete() {
 
   String path = (*server2).arg(0);
   if (path.isEmpty() || path == "/") {
-	return replyBadRequest("BAD PATH");
+	return replyBadRequest(F("BAD PATH"));
   }
 
   if (!fileSystem->exists(path)) {
@@ -436,7 +436,7 @@ void handleNotFound() {
 	message += (*server2).arg(i);
 	message += '\n';
   }
-  message += "path=";
+  message += F("path=");
   message += (*server2).arg("path");
   message += '\n';
 
@@ -451,19 +451,19 @@ void handleNotFound() {
 */
 void handleGetEdit() {
   if (!(*server2).hasArg("file")) {
-	return replyBadRequest("BAD PATH");
+	return replyBadRequest(F("BAD PATH"));
   }
 
   String path = (*server2).arg("file");
   if (!fileSystem->exists(path)) {
-	return replyBadRequest("BAD PATH");
+	return replyBadRequest(F("BAD PATH"));
   }
   
   if (handleFileRead(path)) {
 	return;
   }
   
-  return replyBadRequest("FILE READ ERROR");
+  return replyBadRequest(F("FILE READ ERROR"));
 }
 
 void InitFSBrowser(ESP8266WebServer *server1){
@@ -473,23 +473,23 @@ void InitFSBrowser(ESP8266WebServer *server1){
 	// WEB SERVER INIT
 
 	// Filesystem status
-	(*server2).on("/fsstatus", HTTP_GET, handleStatus);
+	(*server2).on(F("/fsstatus"), HTTP_GET, handleStatus);
 
 	// List directory
-	(*server2).on("/fslist", HTTP_GET, handleFileList); //?dir=/  or /
+	(*server2).on(F("/fslist"), HTTP_GET, handleFileList); //?dir=/  or /
 
 	// Load editor
-	(*server2).on("/fsedit", HTTP_GET, handleGetEdit); //?file=/f.txt  and ?download=1
+	(*server2).on(F("/fsedit"), HTTP_GET, handleGetEdit); //?file=/f.txt  and ?download=1
 
 	// Create file
-	(*server2).on("/fsedit",  HTTP_PUT, handleFileCreate);
+	(*server2).on(F("/fsedit"),  HTTP_PUT, handleFileCreate);
 
 	// Delete file
-	(*server2).on("/fsedit",  HTTP_DELETE, handleFileDelete);
+	(*server2).on(F("/fsedit"),  HTTP_DELETE, handleFileDelete);
 
 	// Upload file
 	// - first callback is called after the request has ended with all parsed arguments
 	// - second callback handles file upload at that location
-	(*server2).on("/fsedit",  HTTP_POST, replyOK, handleFileUpload);
+	(*server2).on(F("/fsedit"),  HTTP_POST, replyOK, handleFileUpload);
 }
 #endif

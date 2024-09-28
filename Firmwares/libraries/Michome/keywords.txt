@@ -18,7 +18,17 @@ TimerLightModule	KEYWORD1
 TimerLightModuleQ	KEYWORD1
 MichomeUDP	KEYWORD1
 MichomUDP	KEYWORD1
-WS28	KEYWORD1
+#WS28	KEYWORD1
+TermometrModules	KEYWORD1
+Termometrs	KEYWORD1
+CreateMichome	KEYWORD1
+Module	KEYWORD1
+MeteoStations	KEYWORD1
+MeteoStationModules	KEYWORD1
+ExternalUnits	KEYWORD1
+ModuleParam	KEYWORD1
+FSFiles	KEYWORD1
+PinType	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
@@ -26,7 +36,9 @@ WS28	KEYWORD1
 
 SendDataGET KEYWORD2
 SendDataPOST	KEYWORD2
-SendData	KEYWORD2
+SendGateway	KEYWORD2
+loadModuleParam	KEYWORD2
+preInit	KEYWORD2
 init    KEYWORD2
 running KEYWORD2
 GetServer	KEYWORD2
@@ -63,6 +75,24 @@ EAlarm	KEYWORD2
 ENightLight	KEYWORD2
 EOverCold	KEYWORD2
 EOverHot	KEYWORD2
+GetTempHandler	KEYWORD2
+GetTermomersInfoHandler	KEYWORD2
+GetResetTempHandler	KEYWORD2
+GetInitTempHandler	KEYWORD2
+SetRefreshData	KEYWORD2
+SetCountTermometrs	KEYWORD2
+Refresh	KEYWORD2
+isWIREFound	KEYWORD2
+GetMeteoHandler	KEYWORD2
+GetMeteoInfoHandler	KEYWORD2
+GetResetMeteoHandler	KEYWORD2
+GetInitMeteoHandler	KEYWORD2
+SetCountMeteo	KEYWORD2
+WriteFile	KEYWORD2
+ReadFile	KEYWORD2
+GetData	KEYWORD2
+Exist	KEYWORD2
+CountSymbols	KEYWORD2
 
 #######################################
 # Instances (KEYWORD2)
@@ -90,3 +120,8 @@ PWM	LITERAL1
 SaveState	LITERAL1
 MinimumBrightnes	LITERAL1
 MaximumBrightnes	LITERAL1
+IsSaveMode	LITERAL1
+EnableExternalUnits	LITERAL1
+TermometersValue	LITERAL1
+HummValue	LITERAL1
+MeteoStationData	LITERAL1

@@ -1,5 +1,5 @@
-#ifndef LightModules_h
-#define LightModules_h
+#ifndef Termometrs_h
+#define Termometrs_h
 
 #if defined(ARDUINO) && ARDUINO >= 100
   #include "Arduino.h"
@@ -9,16 +9,25 @@
 
 #define TermometrsTimeoutConnection 3000
 
-#define TermometersValue float
-#define TermometersTypeValue String
+#ifndef MaxTermometers
+	#define MaxTermometers 8
+#endif
+
+#ifndef TermometersValue
+	#define TermometersValue float
+#endif
+
+#ifndef TermometersTypeValue
+	#define TermometersTypeValue String
+#endif
 
 #include <Michom.h>
 //#include <LinkedList.h>
 //#include <ArduinoJson.h>
 
-typedef std::function<bool(void)> BTHandlerFunction;
-typedef std::function<TermometersValue(void)> GTHandlerFunction;
-typedef std::function<TermometersTypeValue(void)> GTTHandlerFunction;
+typedef std::function<bool(uint8_t idTermometrs)> BTHandlerFunction;
+typedef std::function<TermometersValue(uint8_t idTermometrs)> GTHandlerFunction;
+typedef std::function<TermometersTypeValue(uint8_t idTermometrs)> GTTHandlerFunction;
 
 class TermometrModules
 {
@@ -30,23 +39,26 @@ class TermometrModules
 				void init();
 				void running();
 				void ChangeTime(int time);
-				void SendData();
+				void SendGateway();
 				
 				void GetTempHandler(GTHandlerFunction th){_getTemp = th;}
 				void GetTermomersInfoHandler(GTTHandlerFunction th){_getTermomersInfo = th;}
 				void GetResetTempHandler(BTHandlerFunction th){_resetTemp = th;}
 				void GetInitTempHandler(BTHandlerFunction th){_initTemp = th;}
 				
-				TermometersValue GetTemp(){return _getTemp();};
-				TermometersTypeValue GetTermometersInfo(){return _getTermomersInfo();};
-				bool ResetTemp(){return _resetTemp();};
-				bool InitTemp(){ if(NeedResetForInit) ResetTemp(); return _initTemp();};
+				TermometersValue GetTemp(uint8_t idTermometrs){return _getTemp(idTermometrs);};
+				TermometersTypeValue GetTermometersInfo(uint8_t idTermometrs){return _getTermomersInfo(idTermometrs);};
+				bool ResetTemp(uint8_t idTermometrs){return _resetTemp(idTermometrs);};
+				bool InitTemp(uint8_t idTermometrs){ if(NeedResetForInit) ResetTemp(idTermometrs); return _initTemp(idTermometrs);};
 				
 				//Включение Telnet сервера
                 bool TelnetEnable = false;
 				//Необходим ли сброс при инициализации
-                bool NeedResetForInit = false; 				
-				
+                bool NeedResetForInit = false;
+				//Установить количество термометров
+				uint8_t SetCountTermometrs(uint8_t count){count = min(count, (uint8_t)MaxTermometers); countTermometrs = count; return countTermometrs;};
+				//Получить количество термометров
+				uint8_t GetCountTermometrs(){return countTermometrs;};
         private:
             GTHandlerFunction _getTemp;
             GTTHandlerFunction _getTermomersInfo;
@@ -54,10 +66,11 @@ class TermometrModules
             BTHandlerFunction _initTemp;
 			Michome *gtw;
 			Telnet *telnLM;
+			uint8_t countTermometrs = 0;
 			
 			RTOS rtos = RTOS(600000);
 			
 			void TelnetRun(String telnd);
             
 };
-#endif // #ifndef LightModules_h
+#endif // #ifndef Termometrs_h

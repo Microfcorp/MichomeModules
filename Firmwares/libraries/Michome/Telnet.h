@@ -9,6 +9,7 @@
 
 #define MAX_SRV_CLIENTS 4
 #define NullString "NullStringT"
+#define STANDARTTELNETPORT 23
 
 // ansi stuff, could always use printf instead of concat
 #define ansiPRE  "\033 " // escape code
@@ -41,6 +42,7 @@
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
 #include <LinkedList.h>
+#include <Module.h>
 
 typedef std::function<void(void)> THandlerFunction;
 
@@ -55,7 +57,7 @@ class Telnet
 {
         public:
                 //Объявление класса
-                Telnet(int port, const char* ID);
+                Telnet(int port, String ID);
 				~Telnet(){};
                 //
                 String GetData();
@@ -67,23 +69,24 @@ class Telnet
                 void print(String text);
                 //
                 void println(String text);
+				void println(){println("");};
 				//
                 void printlnNL(String text);
 				//
                 void printlnNIA(String text);
 				//		
-				String Split(String data, char separator, int index);
+				//String Split(String data, char separator, int index);
 				//
 				void on(const String &linq, const String &descreption, THandlerFunction handler);
 				//
 				void on(const String &linq, const String &descreption){on(linq, descreption, [](){});};
 				//
 				void printSucess(String text){
-					print("\n");
+					print(F("\n"));
 					println(ansiGRNF + text + ansiEND);
 				}
 				void printError(String text){
-					print("\n");
+					print(F("\n"));
 					println(ansiRED + text + ansiEND);
 				}
                 //
@@ -93,7 +96,7 @@ class Telnet
                 //
                 void Init();
 				//
-				void SetID(const char* ID){
+				void SetID(String ID){
 					id = ID;
 				}
 				//
@@ -102,7 +105,7 @@ class Telnet
         private:
 			WiFiServer servT = WiFiServer(23);
             bool IsReadConfig = false;
-			const char* id;
+			String id;
             WiFiClient serverClients[MAX_SRV_CLIENTS];
 			LinkedList<OnData> Ons = LinkedList<OnData>();
             String RD = NullString;

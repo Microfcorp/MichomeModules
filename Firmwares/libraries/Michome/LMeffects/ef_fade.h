@@ -7,12 +7,14 @@
 #define MAX_BRIGHT MaximumBrightnes  // макс. яркость огня
 
 #if defined(USECRT) && !defined(EnableCRT)
-	#error "CRT гамма выключена в LightModule.h"
+	#undef USECRT
 #endif
 
 bool reversestate = false;
 int val = 0;
+//ModuleParam FadeParams[MaxEFParams];
 
+//void fadeTick(LinkedList<LightPin> *Pins, ModuleParam *EFParams) {
 void fadeTick(LinkedList<LightPin> *Pins) {
   if(reversestate) if(val-- <= MIN_BRIGHT) {reversestate = false;}
   if(!reversestate) if(val++ >= MAX_BRIGHT) {reversestate = true;}
@@ -23,3 +25,9 @@ void fadeTick(LinkedList<LightPin> *Pins) {
 	SetEveryPin(val);
   #endif
 }
+
+/*ModuleParam& FadeGetParams() {
+	LinkedList<ModuleParam> Ut = LinkedList<ModuleParam>();
+	Ut.add({"MinBright", "300"});
+	return Ut;
+}*/

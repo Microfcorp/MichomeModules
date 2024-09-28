@@ -16,36 +16,39 @@
 #define IsLCDI2C
 
 #define ChangeLightForSettings //Управление подсветкой по настройкам или по данным со шлюза
+#define StartDisplayOnStart //Включать дисплей при загрузке
 
 #include <Michom.h>
 #include <LinkedList.h>
+#define ARDUINOJSON_DECODE_UNICODE 1
 #include <ArduinoJson.h>
 
 #ifdef IsLCDI2C
 	#include <LiquidCrystal_I2C.h>
 	//#define IsLCD1602I2C
-	#include <Wire.h>
+	//#include <Wire.h>
 	#include <lcd/symbols_inf.h>
-	#include <lcd/symbols_russian.h>
+	//#include <lcd/symbols_russian.h>
 #endif
 
 typedef enum SymbolsBank { BIndoor, BOutDoor, Day, BHourly, Watcher };
 typedef enum WorkingModes { Weather, Watch };
 typedef struct LCDData
 {	
-    char DayTemp[6]; //Дневная температура
-    char NightTemp[6]; //Ночная температура
-    char Wind[6]; //Скорость ветра
-	char Press[6]; //Давление
-	char ToDate[16]; //На дату
-	long UNIXDay; //На дату
-	byte IconDay; //Иконка
-	byte IconNight; //Иконка
+    char DayTemp[10]; //Дневная температура
+    char NightTemp[10]; //Ночная температура
+    char Wind[10]; //Скорость ветра
+	char Press[10]; //Давление
+	char ToDate[24]; //На дату в тексте
+	long UNIXDay; //На дату в unix
+	uint8_t IconDay; //Иконка
+	uint8_t IconNight; //Иконка
+	uint8_t IconWind; //Иконка ветра
 };
 typedef struct LCDDataPrint //для вывода на дисплей
 {
     SymbolsBank Symbols; //Банк с иконками
-    //byte IconsLine[2]; //Иконки по строкам
+    //uint8_t IconsLine[2]; //Иконки по строкам
     LCDData Data; //Погодгые данные
 };
 
@@ -63,11 +66,11 @@ typedef struct HourlyDataPoint
 {
     char Temp[5]; //температура
 	char Time[6]; //На время
-	byte Icon; //Иконка
+	uint8_t Icon; //Иконка
 };
 typedef struct HourlyData
 {
-	byte Count;
+	uint8_t Count;
     HourlyDataPoint Data[HoursMaximum];
 };
 
@@ -76,17 +79,14 @@ typedef struct ServerData //для хранения с сервера в ram
     IndoorData Indoor; //Домашние данные
     OutdoorData Outdoor; //Интернет данные
 	HourlyData Hourly; //Интернет данные
-    String ServerTime; //Серверное время
+    long ServerTime; //Серверное время в unix
     bool LightEnable; //Управление подсветкой
 };
 
 typedef struct InformetrSetting //для хранения настроек информетра
 {
-    DateTime StartDisplay; //Домашние данные
-    DateTime StopDisplay; //Интернет данные
-	//HourlyData Hourly; //Интернет данные
-    //String ServerTime; //Серверное время
-    //bool LightEnable; //Управление подсветкой
+    DateTime StartDisplay; //Время включения дисплея
+    DateTime StopDisplay; //Время выключения дисплея
 };
 
 class InformetrModule
@@ -107,7 +107,7 @@ class InformetrModule
 				void InversePokazType(){if(!IsReadData || WorkMode == Watch) return; PokazType =! PokazType; if(!PokazType) i1(); else i2();}
 				bool pause = false; // пауза обновления и отображения				
 				bool IsAutoUpdate = true; //автоматически обновлять данные по таймеру
-				void InverseHourlyDay(){if(WorkMode == Watch) return; IsHourly =! IsHourly; if(IsHourly){ LoadHourlyPrognoz(); i1();} else i2();} //Включает почасовой прогноз
+				void InverseHourlyDay(){if(WorkMode == Watch || !PokazType) return; IsHourly =! IsHourly; if(IsHourly){ LoadHourlyPrognoz(); i1();} else i2();} //Включает почасовой прогноз
                 void InverseWorkMode(){if(WorkMode == Weather) {WorkMode = Watch; rtos1.Stop(); rtos2.Stop(); rtos3.Start();} else {WorkMode = Weather; rtos3.Stop(); rtos2.Start();} i1();}
 				
         private:
@@ -146,7 +146,7 @@ class InformetrModule
 			void PrintETError();
 			bool st = true;
 			byte day = 0;
-			byte maxday = 0;
+			int maxday = 0;
 			void plusday() {
 				day++;
 				if (day > maxday-1) 
@@ -160,29 +160,7 @@ class InformetrModule
 				return d;
 			}
 			
-			void PrintTextDayFromDate(String todate){
-				int year = (*gtw).Split(todate, '-', 0).toInt();
-				int mounth = (*gtw).Split(todate, '-', 1).toInt();
-				int day = (*gtw).Split(todate, '-', 2).toInt();
-				DateTime CD = (*gtw).GetDateTime();
-				
-				if(year == CD.Year && mounth == CD.Mounth && day == CD.Day){
-					lcd.createChar(0, rus_G);
-					lcd.createChar(1, rus_D);
-					lcd.createChar(2, rus_YA);
-					lcd.print("Ce");
-					lcd.write(0);
-					lcd.write('O');
-					lcd.write(1);
-					lcd.write('H');
-					lcd.write(2);
-				}
-				else if((year == CD.Year && mounth == CD.Mounth && day == CD.Day + 1) || (year == CD.Year && mounth == CD.Mounth && day == 1 && (CD.Day == 30 || CD.Day == 31))){
-					lcd.createChar(0, rus_Z);
-					lcd.write(0);
-					lcd.print("ABTPA");				
-				}
-			}
+			void PrintTextDayFromDate(String todate);
 			
 			void GenerateSelHours(){
 				if(Server.Hourly.Count <= MaxSelH)
@@ -222,20 +200,20 @@ class InformetrModule
 						lcd.backlight();
 					else lcd.noBacklight(); //Выключаем свет
 				}
-				void ToHomes(){
+				void ToHomes(byte idiconDay){
 				  lcd.createChar(0, homes);
 				  lcd.createChar(1, watchh);
-				  lcd.createChar(2, groza);
-				  lcd.createChar(3, soln);
+				  lcd.createChar(2, IDtoSymbol(idiconDay));
+				  lcd.createChar(3, Minus);
 				  lcd.createChar(4, sneg);
 				  lcd.createChar(5, gradus);
 				}
 
-				void ToPrognoz(){
-				  lcd.createChar(0, Dozd);
-				  lcd.createChar(1, oblazn);
-				  lcd.createChar(2, groza);
-				  lcd.createChar(3, soln);
+				void ToPrognoz(byte idiconDay, byte idiconNight, byte idiconWind){
+				  lcd.createChar(0, IDtoSymbol(idiconDay));
+				  lcd.createChar(1, IDtoSymbol(idiconNight));
+				  lcd.createChar(2, Minus);
+				  lcd.createChar(3, WindIDtoSymbol(idiconWind));
 				  lcd.createChar(4, sneg);
 				  lcd.createChar(5, gradus);
 				  lcd.createChar(6, LittleDozd);

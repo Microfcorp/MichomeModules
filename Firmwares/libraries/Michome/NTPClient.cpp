@@ -59,6 +59,9 @@ void NTPClient::begin(int port) {
 
   this->_udpSetup = true;
   updater.Start();
+  
+  //
+  setTZ(TZ_Europe_Moscow);
 }
 
 bool NTPClient::forceUpdate() {
@@ -99,6 +102,18 @@ bool NTPClient::update() {
     || this->_lastUpdate == 0) {                                  // Update if there was no update yet.
     if (!this->_udpSetup) this->begin();                          // setup the UDP client if needed
     trt = this->forceUpdate();
+	if(trt){
+		time_t epoch_t = this->getEpochTime();
+		// set the system time to UTC
+		timeval tv = { epoch_t, 0 };
+		settimeofday(&tv, nullptr);
+		if(!_IsSync){
+			_IsSync = true;
+			for(uint8_t i = 0; i < _FirstSync.size(); i++){
+				_FirstSync.get(i)(epoch_t);
+			}
+		}
+	}
   }
   if(updater.IsTick()){
 	  updateDT();
@@ -257,7 +272,7 @@ void NTPClient::setUpdateInterval(unsigned long updateInterval) {
 }
 
 void NTPClient::setPoolServerName(const char* poolServerName) {
-    this->_poolServerName = poolServerName;
+  this->_poolServerName = poolServerName;
 }
 
 void NTPClient::sendNTPPacket() {

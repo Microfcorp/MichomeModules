@@ -2,11 +2,16 @@
 #define ModuleTypes_h
 
 #define StudioLight "StudioLight"
-#define Termometr "termometr"
+//#define Termometr "termometr" //Тип заменен на универсальный MeteoModule
 #define Informetr "Informetr"
-#define Msinfoo "msinfoo"
-#define HDC1080md "hdc1080mx"
-#define WS28Module "WS28"
+//#define Msinfoo "msinfoo"     //Тип заменен на универсальный MeteoModule
+//#define HDC1080md "hdc1080mx" //Тип заменен на универсальный MeteoModule
+#define WS28Module "WS28"         
+#define MeteoModule "meteostation"
+#define OLED "OLED"
+#define PowerMods "PowerModules"
+
+#define BUTTONPRESS "get_button_press"
 
 /* static char* GenerateTypes(String arraystr[], byte size){
 	volatile String localsq = "";

@@ -8,7 +8,7 @@
   #include "Arduino.h"
 #else
   #include "WProgram.h"
-#endif 
+#endif
 #include <Michom.h>
 #include <FSFiles.h>
 #include <LightModules.h>
@@ -16,8 +16,14 @@
 #include <Telnet.h>
 //#include <TimeSystem.h>
 
-#define NTPTimer 60000
-#define MaximumTimers 15
+#define MaxSyncPath 50
+
+#if defined(FLASHMODE_DOUT)
+	#define MaximumTimers 15
+#else
+	#define MaximumTimers 22
+#endif
+
 #define EFOffset 50
 
 // IsScript = false, Pin: 0 - 255 Пин модуля
@@ -54,6 +60,12 @@ typedef struct DayStruct
 	int State;
 };
 
+typedef struct TimerLightModuleSettings
+{
+    bool IsSync;
+	char SyncPath[MaxSyncPath];
+};
+
 class TimerLightModule
 {
         public:
@@ -71,7 +83,7 @@ class TimerLightModule
                 //
                 void Add(TimeLightModuleQ tm);
                 //
-				void ChangeForDay(byte id, bool state, int PinState = -1, bool isRun = true, bool isSave = true);
+				bool ChangeForDay(byte id, bool state, int PinState = -1, bool isRun = true, bool isSave = true);
 				//
 				void RemoveChangeForDay(byte id);
 				//
@@ -82,18 +94,24 @@ class TimerLightModule
 				bool IsPlayTimer(TimeLightModuleQ em);
 				//
 				bool IsNeedEnableIsDay(byte TLMid, int pin, int br);
+				//
+				bool IsDayOff(byte TLMid);
         private:                       
             Michome *gtw;          
             LinkedList<TimeLightModuleQ> Qs = LinkedList<TimeLightModuleQ>();           
             LinkedList<DayStruct> Ds = LinkedList<DayStruct>();           
-            LinkedList<uint8_t> ToDeleteDS = LinkedList<uint8_t>();           
+            LinkedList<uint8_t> ToDeleteDS = LinkedList<uint8_t>();
+			LinkedList<TimeLightModuleQ> ToCurrentPin = LinkedList<TimeLightModuleQ>();			
             LightModules *light; 
 			Telnet *telnet;
 			MichomeUDP *udp;
+			TimerLightModuleSettings M_settings;
             FSFiles fstext = FSFiles("/timer.txt");
             FSFiles fsdays = FSFiles("/timerdays.txt");
-			RTOS timers = RTOS(NTPTimer);
+			RTOS timers = RTOS(RTOS1M);
+			RTOS timers_sync = RTOS(RTOS1H);
             void _running();	
+			void _synchroT();
             String GetPinsHTML(int pin, bool isScripts){
                 String tmp = "";
                 for(int i = 0; i < (*light).CountPins(); i++){
@@ -119,6 +137,15 @@ class TimerLightModule
 						return i;
 				}
 				return -1;
+			}
+			int GetSyncPort(){
+			    int httpPort = 80;
+			    if(IsStr(String(M_settings.SyncPath), ":"))
+					httpPort = Split(M_settings.SyncPath, ':', 1).toInt();
+				return httpPort;
+			}
+			String GetSyncHost(){
+			    return Split(M_settings.SyncPath, ':', 0);
 			}
 };
 #endif // #ifndef TimerLightModule_h

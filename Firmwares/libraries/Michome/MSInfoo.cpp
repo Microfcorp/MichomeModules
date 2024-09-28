@@ -82,12 +82,12 @@ void MSInfoo::running(){
     }
     
     if (rtos.IsTick()) {
-		SendData();
+		SendGateway();
 	}
 }
 
-void MSInfoo::SendData(){
-	//  michome.SendData(michome.ParseJson(String(type), String(bmp.readPressure()/133.332)+";"+String(bmp.readTemperature())+";"+String(bmp.readAltitude())+";"+String(dht.readTemperature())+";"+String(dht.readHumidity())));
+void MSInfoo::SendGateway(){
+	//  michome.SendGateway(michome.ParseJson(String(type), String(bmp.readPressure()/133.332)+";"+String(bmp.readTemperature())+";"+String(bmp.readAltitude())+";"+String(dht.readTemperature())+";"+String(dht.readHumidity())));
 	MSInfooData data = GetMSInfoo();
 	String tmp = "";
 	tmp += String(data.press/133.332) + ";";
@@ -95,7 +95,7 @@ void MSInfoo::SendData(){
 	tmp += String(data.alt) + ";";
 	tmp += String(data.temp1) + ";";
 	tmp += String(data.humm);	
-    (*gtw).SendData((*gtw).ParseJson(tmp));
+    (*gtw).SendGateway((*gtw).GetModule(1), tmp);
 	
 	tmp.replace(";", "-");
 	

@@ -5,33 +5,42 @@
 #else
   #include "WProgram.h"
 #endif 
-#include <FS.h>
-#include <LittleFS.h>
+#include "config.h"
 #include <ESP8266WebServer.h>
 
 #define LogFileName "/logfile.txt"
+
+#if defined(FLASHMODE_DOUT)
+	#define MaxLogFileBytes 204800
+#else
+	#define MaxLogFileBytes 1048576
+#endif
 
 #ifndef NoFS
 class FSLoging
 {
         public:
             void AddLogFile(String textadd){
-                File f = LittleFS.open(LogFileName, "a");
+                File f = SFS.open(LogFileName, "a");
                 if (!f) {
-                    Serial.println("LOG open failed");  //  "открыть файл не удалось"
+                    Serial.println(F("LOG open failed"));  //  "открыть файл не удалось"
                 }
                 else{
-                    if (f.print(textadd + " <br /> ")) {} 
-					else {
-						Serial.println("LOG append failed");
+					if(f.size() >= MaxLogFileBytes){
+						ClearLogFile();
+						f.print(F("Log file is full <br /> "));
+						f.print(textadd + " <br /> ");
+					}
+                    if (!f.print(textadd + " <br /> ")){
+						Serial.println(F("LOG append failed"));
 					}
 					f.close();
                 }
             }
             String ReadLogFile(){      
-                File f = LittleFS.open(LogFileName, "r");
+                File f = SFS.open(LogFileName, "r");
                 if (!f) {
-                    Serial.println("LOG file open failed");  //  "открыть файл не удалось"
+                    Serial.println(F("LOG file open failed"));  //  "открыть файл не удалось"
                     return "";
                 }
                 else{
@@ -41,16 +50,16 @@ class FSLoging
                 }    
             }
 			void ReadLogFileToServer(ESP8266WebServer *server){				
-				File f = LittleFS.open(LogFileName, "r");
+				File f = SFS.open(LogFileName, "r");
 				if ((*server).streamFile(f, F("text/html")) != f.size()) {
-				  Serial.println("Sent less data than expected!");
+				  Serial.println(F("Sent less data than expected!"));
 				}
 				f.close();								    
             }
             void WriteLogFile(String text){
-                File f = LittleFS.open(LogFileName, "w");
+                File f = SFS.open(LogFileName, "w");
                 if (!f) {
-                    Serial.println("LOG file open failed");  //  "открыть файл не удалось"
+                    Serial.println(F("LOG file open failed"));  //  "открыть файл не удалось"
                     return;
                 }
                 else{

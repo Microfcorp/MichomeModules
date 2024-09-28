@@ -1,7 +1,7 @@
 #include "Telnet.h"
 
 //Объявление класса
-Telnet::Telnet(int port, const char* ID){
+Telnet::Telnet(int port, String ID){
     servT = WiFiServer(port);
 	id = ID;
 };
@@ -18,29 +18,11 @@ bool Telnet::IsDataAvalible(){
     return RD != NullString;
 };
 //
-String Telnet::Split(String data, char separator, int index)
-{
-  int found = 0;
-  int strIndex[] = {0, -1};
-  int maxIndex = data.length()-1;
-
-  for(int i=0; i<=maxIndex && found<=index; i++){
-    if(data.charAt(i)==separator || i==maxIndex){
-        found++;
-        strIndex[0] = strIndex[1]+1;
-        strIndex[1] = (i == maxIndex) ? i+1 : i;
-    }
-  }
-
-  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
-}
-//
 void Telnet::Running(){
-    byte i;
     //check if there are any new clients
     if (servT.hasClient()) {
         //find free/disconnected spot
-        for(i = 0; i < MAX_SRV_CLIENTS; i++){
+        for(uint8_t i = 0; i < MAX_SRV_CLIENTS; i++){
             if (!serverClients[i] || !serverClients[i].connected()) {
                 if (serverClients[i]) serverClients[i].stop();
                 serverClients[i] = servT.available();
@@ -51,20 +33,21 @@ void Telnet::Running(){
         }
     }    
 
-    for(i = 0; i < MAX_SRV_CLIENTS; i++){
+    for(uint8_t i = 0; i < MAX_SRV_CLIENTS; i++){
         if (serverClients[i] && serverClients[i].connected()) {
             if (serverClients[i].available()) {
                 RD = serverClients[i].readStringUntil('\n');    
 				RD.trim();
 				bool isfind = false;
 				//InputArea(serverClients[i]);
-				for(int t = 0; i < Ons.size(); i++){
-					if(Split(RD, ';', 0) == Ons.get(i).name){
+				//serverClients[i].println(Split(RD, ';', 0));
+				for(uint8_t t = 0; t < Ons.size(); t++){	
+					if(CountSymbols(RD, ';') == 1 ? (RD.substring(0, RD.length()-1) == Ons.get(t).name) : (Split(RD, ';', 0) == Ons.get(t).name)){
 						isfind = true;
-						Ons.get(i).func();						
+						Ons.get(t).func();						
 					}
 				}
-				if(!isfind) println("");
+				if(!isfind) println();
             }
         }   
     }    
@@ -78,8 +61,8 @@ void Telnet::Init(){
     servT.begin();
     servT.setNoDelay(true);
 	
-	on("help", "Show help for commands", [&](){
-		printlnNIA("Commands for this Michome module");
+	on(F("help"), F("Show help for commands"), [&](){
+		printlnNIA(F("Commands for this Michome module: \n"));
         for(int i = 0; i < Ons.size(); i++){
 			OnData data = Ons.get(i);
 			printlnNIA(data.name + " \t - " + data.descreption);
@@ -87,8 +70,8 @@ void Telnet::Init(){
 		println("");
     });
 	
-	on("restart", "Reboot module", [&](){
-		println("Module rebooting...");
+	on(F("restart"), F("Reboot module"), [&](){
+		println(F("Module rebooting..."));
 		ESP.restart();
     });
 };

@@ -5,8 +5,7 @@
 #else
   #include "WProgram.h"
 #endif 
-#include <FS.h>
-#include <LittleFS.h>
+#include "config.h"
 #include <ESP8266WebServer.h>
 
 #ifndef NoFS
@@ -19,7 +18,7 @@ class FSFiles
             
             void AddTextToFile(String textadd){
 				ErrorOpen = false;
-                File f = LittleFS.open(FilePath, "a");
+                File f = SFS.open(FilePath, "a");
                 if (!f) {
                     Serial.println("file "+FilePath+" append-mode open failed");  //  "открыть файл не удалось"
 					ErrorOpen = true;
@@ -35,7 +34,7 @@ class FSFiles
             }
             String ReadFile(){
 				ErrorOpen = false;
-                File f = LittleFS.open(FilePath, "r");
+                File f = SFS.open(FilePath, "r");
                 if (!f) {
                     Serial.println("file "+FilePath+" from read-mode open failed");  //  "открыть файл не удалось"
 					ErrorOpen = true;
@@ -48,7 +47,7 @@ class FSFiles
                 }    
             }
 			void ReadFileToServer(ESP8266WebServer *server){				
-				File f = LittleFS.open(FilePath, "r");
+				File f = SFS.open(FilePath, "r");
 				if ((*server).streamFile(f, F("text/html")) != f.size()) {
 				  Serial.println("Sent less data than expected!");
 				}
@@ -56,9 +55,9 @@ class FSFiles
             }
             void WriteFile(String text){
 				ErrorOpen = false;
-                File f = LittleFS.open(FilePath, "w");
+                File f = SFS.open(FilePath, "w");
                 if (!f) {
-                    Serial.println("file "+FilePath+" write-mode open failed. Created new file");  //  "открыть файл не удалось"
+                    Serial.println("file "+FilePath+" write-mode open failed");  //  "открыть файл не удалось"
 					ErrorOpen = true;
                     return;
                 }
@@ -72,6 +71,10 @@ class FSFiles
             void ClearFile(){
                 WriteFile("");
             }
+			
+			bool Exist(){
+				return SFS.exists(FilePath);
+			}
 			
 			bool ErrorOpen = false;			
         private:

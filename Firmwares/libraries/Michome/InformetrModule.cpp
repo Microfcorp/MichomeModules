@@ -11,37 +11,47 @@ InformetrModule::InformetrModule(Michome *m)
 
 void InformetrModule::init()
 {
-		(*gtw).preInit();
-		Load();
+	(*gtw).preInit();
+	Load();
 	//#ifdef IsLCDI2C
+	
+		ExternalUnits& EU = (*gtw).GetExternalUnits();
+		if(!EU.isWIREFound(0x3F)){
+			(*gtw).AddLogFile(F("LCD 1602 display is not found on 0x3F adress"));
+		}
+	
 		lcd.init();
 		delay(10);
-		lcd.noBacklight();
+		#if defined(StartDisplayOnStart)
+			lcd.noBacklight();
+		#else
+			lcd.backlight();
+		#endif
 		lcd.setCursor(0, 0);
 		lcd.print((*gtw).GetModule(0)); //ID
 		lcd.setCursor(0, 1);
-		lcd.print("Start module..."); //ID
+		lcd.print(F("Start module...")); //ID
 		
 		ESP8266WebServer& server1 = (*gtw).GetServer();
-		server1.on("/onlight", [&]() {
+		server1.on(F("/onlight"), [&]() {
 			IsRunLight = true;
 			LightOff.Start();
 			lcd.backlight();
-			server1.send(200, "text/html", "OK");
+			server1.send(200, F("text/html"), F("OK"));
 		});
 
-		server1.on("/offlight", [&]() {
+		server1.on(F("/offlight"), [&]() {
 			IsRunLight = false;
 			lcd.noBacklight();
-			server1.send(200, "text/html", "OK");
+			server1.send(200, F("text/html"), F("OK"));
 		});
 
-		server1.on("/refresh", [&]() {
-			server1.send(200, "text/html", "OK");
+		server1.on(F("/refresh"), [&]() {
+			server1.send(200, F("text/html"), F("OK"));
 			startUpdate();
 		});
 
-		server1.on("/pause", [&]() {
+		server1.on(F("/pause"), [&]() {
 			if(server1.arg(0) == "stop")
 			  pause = true;
 			else if(server1.arg(0) == "run")
@@ -50,20 +60,20 @@ void InformetrModule::init()
 			server1.send(200, "text/html", (String)pause + " - OK");
 		});
 
-		server1.on("/print", [&]() {
+		server1.on(F("/print"), [&]() {
 			lcd.clear();
 			lcd.home();
 			lcd.setCursor(0, 0);
 			lcd.print(server1.arg("fl"));
 			lcd.setCursor(0, 1);
 			lcd.print(server1.arg("sl"));
-			server1.send(200, "text/html", String("OK"));
+			server1.send(200, F("text/html"), F("OK"));
 		});
 
-		server1.on("/test", [&]() {
+		server1.on(F("/test"), [&]() {
 			lcd.noBacklight();
 			lcd.backlight();
-			ToPrognoz();
+			//ToPrognoz();
 
 			lcd.clear();
 			lcd.write(0);
@@ -73,13 +83,13 @@ void InformetrModule::init()
 			lcd.write(4);
 			lcd.write(5);
 
-			server1.send(200, "text/html", "System OK");
+			server1.send(200, F("text/html"), F("System OK"));
 		});
-		server1.on("/setdata", [&]() {
+		server1.on(F("/setdata"), [&]() {
 			parse(server1.arg(0));
-			server1.send(200, "text/html", "OK");
+			server1.send(200, F("text/html"), F("OK"));
 		});
-		server1.on("/inform", [&]() {
+		server1.on(F("/inform"), [&]() {
 			if(server1.arg("type") == "show" || !server1.hasArg("type")){
 				if (!server1.chunkedResponseModeStart(200, "text/html")) {
 					server1.send(505, F("text/html"), F("HTTP1.1 required"));
@@ -125,17 +135,19 @@ void InformetrModule::parse(String datareads)
 	int idexerror = datareads.lastIndexOf("error");
     if(idexerror != -1 || datareads.length() < 40){
 		lcd.setCursor(0, 0);
-        lcd.print("Error Update");
-	    (*gtw).AddLogFile("Data parsing error");
+        lcd.print(F("Update Error"));
+	    (*gtw).AddLogFile(F("Inform data parsing error"));
+		EtherFail = true;
+        Attempted += 1;
 		if(!IsReadData){
-			WorkMode = Weather; //Это что бы включить часы, когда ошибка данных
+			WorkMode = Weather; //Это что бы включить часы, когда ошибка данных, если вообще не было прочитанных данных
 			InverseWorkMode();
 		}
         return;
     }
     
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& root = jsonBuffer.parseObject(datareads);
+    DynamicJsonDocument root(1024);
+	deserializeJson(root, datareads);
 
     if (root["d"].as<int>() == 3) {
       Server.LightEnable = true;
@@ -163,31 +175,35 @@ void InformetrModule::parse(String datareads)
     }
 
     if (!EtherFail) {
-	  maxday = min(DaysMaximum, static_cast<int>(root["data"].size()) - 1);
+	  maxday = min(DaysMaximum, static_cast<int>(root["data"].size()));
       for (int i = 0; i < maxday; i++) {
-		memcpy(Server.Outdoor.Data[i].DayTemp, root["data"][i]["0"].as<char*>(), 6);
-		memcpy(Server.Outdoor.Data[i].NightTemp, root["data"][i]["1"].as<char*>(), 6);
-		memcpy(Server.Outdoor.Data[i].Wind, root["data"][i]["2"].as<char*>(), 6);
-		memcpy(Server.Outdoor.Data[i].Press, root["data"][i]["3"].as<char*>(), 6);
-		memcpy(Server.Outdoor.Data[i].ToDate, root["data"][i]["times"].as<char*>(), 16);
+		strcpy(Server.Outdoor.Data[i].DayTemp, root["data"][i]["0"].as<const char*>());
+		strcpy(Server.Outdoor.Data[i].NightTemp, root["data"][i]["1"].as<const char*>());
+		strcpy(Server.Outdoor.Data[i].Wind, root["data"][i]["2"].as<const char*>());
+		strcpy(Server.Outdoor.Data[i].Press, root["data"][i]["3"].as<const char*>());
+		strcpy(Server.Outdoor.Data[i].ToDate, root["data"][i]["times"].as<const char*>());
 		Server.Outdoor.Data[i].UNIXDay = root["data"][i]["unixtime"].as<long>();
-		Server.Outdoor.Data[i].IconDay = IDtoIcon(root["data"][i]["4"].as<byte>());
-		Server.Outdoor.Data[i].IconNight = IDtoIcon(root["data"][i]["5"].as<byte>());
+		Server.Outdoor.Data[i].IconDay = root["data"][i]["4"].as<uint8_t>();
+		Server.Outdoor.Data[i].IconNight = root["data"][i]["5"].as<uint8_t>();
+		Server.Outdoor.Data[i].IconWind = root["data"][i]["6"].as<uint8_t>();
       }
-	  memcpy(Server.Indoor.Data.DayTemp, root["temp"].as<char*>(), 6);
-	  memcpy(Server.Indoor.Data.NightTemp, root["tempgr"].as<char*>(), 6);
-	  memcpy(Server.Indoor.Data.Wind, root["hummgr"].as<char*>(), 6);
-	  memcpy(Server.Indoor.Data.Press, root["dawlen"].as<char*>(), 6);
-	  memcpy(Server.Indoor.Data.ToDate, root["time"].as<char*>(), 16);
-	  Server.ServerTime = root["time"].as<String>();
-	  //Server.Indoor.Data. = root["time"].as<String>() //<char*>()
+	  strcpy(Server.Indoor.Data.DayTemp, root["temp"].as<const char*>());
+	  strcpy(Server.Indoor.Data.NightTemp, root["tempgr"].as<const char*>());
+	  strcpy(Server.Indoor.Data.Wind, root["hummgr"].as<const char*>());
+	  strcpy(Server.Indoor.Data.Press, root["dawlen"].as<const char*>());
+	  strcpy(Server.Indoor.Data.ToDate, root["time"].as<const char*>());
+	  Server.Indoor.Data.IconDay = root["ic"].as<uint8_t>();
+	  //Server.ServerTime = root["unixtime"].as<long>();
 
       lcd.clear();
       lcd.home();
       lcd.setCursor(0, 0);
-      lcd.print("Updating OK.");
-	  (*gtw).PortPrintln("Updating data OK");
-	  if(!IsReadData){
+      lcd.print(F("Updating OK."));
+	  lcd.setCursor(0, 1);
+	  lcd.print(F("Time: "));
+      //lcd.print(Server.Indoor.Data.ToDate); //сделать потом кодирование из unix
+	  (*gtw).PortPrintln(F("Updating informetr data OK"));
+	  if(!IsReadData){ //Когда юыла ошибка
 		WorkMode = Watch; //Это что бы включить погоду, когда данные были получены
 		InverseWorkMode();
 	  }
@@ -203,21 +219,21 @@ void InformetrModule::parseH(String datareads)
 	int idexerror = datareads.lastIndexOf("error");
     if(idexerror != -1 || datareads.length() < 40){
 		lcd.setCursor(0, 0);
-        lcd.print("Error Hourly");
-	    (*gtw).AddLogFile("Data Hourly parsing error");
+        lcd.print(F("Error Hourly"));
+	    (*gtw).AddLogFile(F("Data Hourly parsing error"));
 		IsHourly = false;
         return;
     }
     
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& root = jsonBuffer.parseObject(datareads);    
+    DynamicJsonDocument root(2048);
+	deserializeJson(root, datareads);
 
 
 	int maxhour = min(HoursMaximum, root["count"].as<int>());
 	Server.Hourly.Count = maxhour;
 	for (int i = 0; i < maxhour; i++) {
-		memcpy(Server.Hourly.Data[i].Temp, root["data"][i]["0"].as<char*>(), 5);
-		memcpy(Server.Hourly.Data[i].Time, root["data"][i]["times"].as<char*>(), 6);
+		memcpy(Server.Hourly.Data[i].Temp, root["data"][i]["0"].as<const char*>(), 5);
+		memcpy(Server.Hourly.Data[i].Time, root["data"][i]["times"].as<const char*>(), 6);
 		Server.Hourly.Data[i].Icon = IDtoIcon(root["data"][i]["1"].as<byte>());
 	}
 }
@@ -225,7 +241,7 @@ void InformetrModule::parseH(String datareads)
 void InformetrModule::Save() {	
 	File f = LittleFS.open("/informetr.bin", "w");
     if (!f) {
-        Serial.println("Error open informetr.bin for write");  //  "открыть файл не удалось"
+        Serial.println(F("Error open informetr.bin for write"));  //  "открыть файл не удалось"
         return;
     }
     else{
@@ -255,6 +271,7 @@ void InformetrModule::Load() {
 
 void InformetrModule::LoadHourlyPrognoz() {	
 	if (!EtherFail && IsReadData){
+		lcd.clear();
 		lcd.createChar(7, clockI);
 		lcd.setCursor(0, 1);
 		lcd.write(7);
@@ -284,22 +301,27 @@ void InformetrModule::running()
 		}*/
 	}
 	
-
-	if (rtos3.IsTick()) //На показ часов
-		i3();
-	if (rtos2.IsTick()) //На показ даты
-		i2();		  
-	if (rtos1.IsTick()) //На показ погоды
-		i1();
-	
-	if(UpdateLight.IsTick())
+	if(UpdateLight.IsTick()) //На управление подствветкой
 		ChangeLight();
-  
-	if (rtos.IsTick() && IsAutoUpdate) //На обновление
-      startUpdate();
-	  
-	if (LightOff.IsTick()) //На таймаут и отключение света
+	
+	if (LightOff.IsTick()) //На таймаут отключения подстветки
       IsRunLight = false;
+	
+	if(WiFi.status() != WL_CONNECTED){
+		lcd.setCursor(0, 0);
+        lcd.print("WIFI lost");
+	}
+	else{
+		if (rtos3.IsTick()) //На показ часов
+			i3();
+		if (rtos2.IsTick()) //На показ даты
+			i2();		  
+		if (rtos1.IsTick()) //На показ погоды
+			i1();
+	  
+		if (rtos.IsTick() && IsAutoUpdate) //На обновление
+		  startUpdate();
+	}		
 }
 
 void InformetrModule::printpause()
@@ -324,7 +346,7 @@ void InformetrModule::PrintETError() {
 	lcd.clear();
 	lcd.home();
 	lcd.setCursor(0, 0);
-	lcd.print("Ethernet Error");
+	lcd.print(F("Connection Error"));
 	lcd.setCursor(0, 1);
 	lcd.print("Attempt " + String(Attempted));
 }
@@ -400,39 +422,78 @@ void InformetrModule::printLCD(LCDDataPrint dt)
 	}
 	if(dt.Symbols == BIndoor){
 		lcd.noBlink();
-		ToHomes();
+		ToHomes(dt.Data.IconDay);
 		lcd.setCursor(0, 0);
-		lcd.write(0);
-		lcd.setCursor(2, 0);
-		lcd.print(dt.Data.DayTemp);
+		lcd.write(2);
+		if(dt.Data.DayTemp[0] == '-'){	
+			lcd.setCursor(1, 0);		
+			lcd.print(dt.Data.DayTemp);
+			lcd.setCursor(1, 0);
+			lcd.write(3);
+			lcd.setCursor(strlen(dt.Data.DayTemp) + 1, 0);
+		}
+		else{
+			lcd.setCursor(2, 0);
+			lcd.print(dt.Data.DayTemp);
+		}
 		lcd.write(5);
 		lcd.setCursor(9, 0);
 		lcd.print(dt.Data.Wind);
 		  
 		lcd.setCursor(0, 1);
 		lcd.write(0);
-		lcd.setCursor(2, 1);
-		lcd.print(dt.Data.NightTemp);
+		if(dt.Data.NightTemp[0] == '-'){	
+			lcd.setCursor(1, 1);
+			lcd.print(dt.Data.NightTemp);
+			lcd.setCursor(1, 1);
+			lcd.write(3);
+			lcd.setCursor(strlen(dt.Data.NightTemp) + 1, 1);
+		}
+		else{
+			lcd.setCursor(2, 1);
+			lcd.print(dt.Data.NightTemp);
+		}
 		lcd.write(5);
 		lcd.setCursor(9, 1);
 		lcd.print((String)dt.Data.Press);
 	}
 	else if(dt.Symbols == BOutDoor){
 		lcd.noBlink();
-		ToPrognoz();
+		ToPrognoz(dt.Data.IconDay, dt.Data.IconNight, dt.Data.IconWind);
 		lcd.noBlink();
 		lcd.setCursor(0, 0);
-		lcd.write(dt.Data.IconDay);
+		lcd.write(0);
 		lcd.setCursor(0, 1);
-		lcd.write(dt.Data.IconNight);
-		lcd.setCursor(2, 0);
-		lcd.print(dt.Data.DayTemp);
+		lcd.write(1);
+		
+		if(dt.Data.DayTemp[0] == '-'){	
+			lcd.setCursor(1, 0);
+			lcd.print(dt.Data.DayTemp);
+			lcd.setCursor(1, 0);
+			lcd.write(2);
+			lcd.setCursor(strlen(dt.Data.DayTemp) + 1, 0);
+		}
+		else{
+			lcd.setCursor(2, 0);
+			lcd.print(dt.Data.DayTemp);
+		}
 		lcd.write(5);
-		lcd.setCursor(2, 1);
-		lcd.print(dt.Data.NightTemp);
+		
+		if(dt.Data.NightTemp[0] == '-'){
+			lcd.setCursor(1, 1);			
+			lcd.print(dt.Data.NightTemp);
+			lcd.setCursor(1, 1);
+			lcd.write(2);
+			lcd.setCursor(strlen(dt.Data.NightTemp) + 1, 1);
+		}
+		else{
+			lcd.setCursor(2, 1);
+			lcd.print(dt.Data.NightTemp);
+		}
 		lcd.write(5);
 		lcd.setCursor(9, 0);
-		lcd.print((String)dt.Data.Wind + "m/s");
+		lcd.print((String)dt.Data.Wind + "m/s ");
+		lcd.write(3);
 		lcd.setCursor(9, 1);
 		lcd.print((String)dt.Data.Press + "mm");
 	}
@@ -463,6 +524,7 @@ void InformetrModule::printLCD(LCDDataPrint dt)
 		lcd.print((*gtw).GetFormattedTime());	
 	}
 	else if(dt.Symbols == Day){	
+		lcd.noBlink();
 		lcd.setCursor(0, 1);
 		PrintTextDayFromDate(dt.Data.ToDate);
         lcd.setCursor(0, 0);
@@ -471,12 +533,26 @@ void InformetrModule::printLCD(LCDDataPrint dt)
 	}
 }
 
+void InformetrModule::PrintTextDayFromDate(String todate){
+	int year = (*gtw).Split(todate, '-', 0).toInt();
+	byte mounth = (*gtw).Split(todate, '-', 1).toInt();
+	byte day = (*gtw).Split(todate, '-', 2).toInt();
+	DateTime CD = (*gtw).GetDateTime();
+
+	if(year == CD.Year && mounth == CD.Mounth && day == CD.Day){
+		lcd.print(F("Today"));
+	}
+	else if((year == CD.Year && mounth == CD.Mounth && day == CD.Day + 1) || (year == CD.Year && mounth == CD.Mounth && day == 1 && (CD.Day == 30 || CD.Day == 31))){
+		lcd.print(F("Second day"));				
+	}
+}
+
 void InformetrModule::startUpdate(){
 	pause = false;
     lcd.clear();
     lcd.home();
     lcd.setCursor(0, 0);
-    lcd.print("Start Update...");
+    lcd.print(F("Start Update..."));
 	//(*gtw).AddLogFile("Start updating informetr");
 	//String data = (*gtw).SendToGateway(PathToPrognoz);
 	//Serial.println(data);
